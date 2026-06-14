@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Block zoom/pinch/auto-fit so the gamepad never scales or reflows. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Tennis Controller</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1f0f; font-family: system-ui, sans-serif; color: #eaf5ea; overscroll-behavior: none; }
+
+  /* ---- Connect screen ---- */
+  #connect { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 10; }
+  #connect h1 { font-size: 28px; letter-spacing: 2px; }
+  #code-input { font-size: 40px; width: 5ch; text-align: center; letter-spacing: 8px; border: 2px solid #3a7d44; border-radius: 12px; background: #10301a; color: #eaf5ea; padding: 8px; }
+  #join-btn { font-size: 22px; padding: 14px 56px; border-radius: 12px; border: none; background: #c8f04a; color: #11300f; font-weight: 700; }
+  #status { min-height: 24px; color: #9fd8a8; }
+
+  /* ---- Rotate-to-landscape prompt ---- */
+  #rotate { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #07180c; z-index: 25; text-align: center; padding: 24px; }
+  #rotate.show { display: flex; }
+  #rotate .icon { font-size: 72px; animation: spin 2.4s ease-in-out infinite; }
+  #rotate p { font-size: 20px; color: #c8f04a; }
+  @keyframes spin { 0%,40% { transform: rotate(0); } 60%,100% { transform: rotate(90deg); } }
+
+  /* ---- Gamepad ---- */
+  #gamepad { position: absolute; inset: 0; display: none; }
+  #gamepad.connected { display: block; }
+
+  /* Movement: floating joystick on the LEFT half (touch anywhere to grab it). */
+  #move-zone { position: absolute; left: 0; top: 0; width: 50%; height: 100%; }
+  #joystick-base { position: absolute; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(200,240,74,.3); display: none; }
+  #joystick-base.active { display: block; }
+  #joystick-thumb { position: absolute; left: 50%; top: 50%; width: 70px; height: 70px; margin: -35px 0 0 -35px; border-radius: 50%; background: #c8f04a; box-shadow: 0 4px 16px rgba(0,0,0,.55); }
+  #move-hint { position: absolute; left: 12%; top: 50%; transform: translateY(-50%); color: rgba(200,240,74,.35); font-size: 15px; pointer-events: none; text-align: center; width: 26%; }
+
+  /* Shots: SWIPE anywhere on the RIGHT half (no need to look down). */
+  #swipe-zone { position: absolute; right: 0; top: 0; width: 50%; height: 100%; background: linear-gradient(135deg, rgba(16,48,26,.25), rgba(8,24,13,.05)); }
+  #swipe-hint { position: absolute; right: 6%; top: 50%; transform: translateY(-50%); width: 36%; color: rgba(200,240,74,.4); font-size: 14px; text-align: center; pointer-events: none; line-height: 1.7; }
+  #swipe-hint .big { font-size: 17px; color: rgba(200,240,74,.6); display: block; margin-bottom: 8px; }
+  #shot-flash { position: absolute; right: 18%; top: 50%; transform: translate(50%,-50%); font-size: 40px; font-weight: 800; color: #c8f04a; opacity: 0; pointer-events: none; text-shadow: 0 2px 12px #000; }
+  #shot-flash.flash { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: 1; transform: translate(50%,-50%) scale(1.2); } 100% { opacity: 0; transform: translate(50%,-50%) scale(.9); } }
+  #serve-cue { position: absolute; left: 50%; top: 14%; transform: translateX(-50%); background: #c8f04a; color: #11300f; font-weight: 800; font-size: 17px; padding: 8px 22px; border-radius: 999px; opacity: 0; transition: opacity .25s; z-index: 12; }
+  #serve-cue.show { opacity: 1; }
+
+  #pause-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.75); font-size: 24px; z-index: 20; text-align: center; }
+
+  /* ---- help ---- */
+  #help-btn { position: absolute; top: 8px; right: 8px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 19px; font-weight: 700; }
+  #pause-btn { position: absolute; top: 8px; right: 54px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 16px; }
+  #help-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: rgba(4,16,8,.97); z-index: 30; padding: 18px; }
+  #help-overlay h2 { color: #c8f04a; font-size: 20px; margin-bottom: 8px; letter-spacing: 1px; }
+  #help-list { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; max-width: 520px; }
+  #help-list b { color: #c8f04a; font-size: 14px; text-align: right; white-space: nowrap; }
+  #help-list span { color: #cfe8d4; font-size: 14px; }
+  #help-close { margin-top: 16px; font-size: 16px; padding: 10px 38px; border-radius: 10px; border: none; background: #c8f04a; color: #11300f; font-weight: 700; }
+  #sens-row { margin-top: 16px; display: flex; align-items: center; gap: 12px; color: #cfe8d4; font-size: 14px; }
+  #sens-row input[type=range] { width: 180px; accent-color: #c8f04a; }
+  #sens-val { color: #c8f04a; font-weight: 700; min-width: 2.5ch; }
+</style>
+</head>
+<body>
+  <div id="connect">
+    <h1>🎾 LOCAL TENNIS</h1>
+    <input id="code-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000" aria-label="Room code">
+    <button id="join-btn">JOIN</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="rotate">
+    <div class="icon">📱</div>
+    <p>Turn your phone sideways</p>
+  </div>
+
+  <div id="gamepad">
+    <div id="move-zone">
+      <div id="move-hint">◀ touch &amp; drag<br>to move ▶</div>
+      <div id="joystick-base"><div id="joystick-thumb"></div></div>
+    </div>
+    <div id="swipe-zone">
+      <div id="swipe-hint"><span class="big">SWIPE TO HIT</span>tap / → = drive<br>↑ = lob · ↓ = slice<br>aim &amp; speed = your swipe</div>
+      <div id="shot-flash"></div>
+    </div>
+    <div id="serve-cue">YOUR SERVE — swipe!</div>
+  </div>
+
+  <div id="pause-overlay">Game paused —<br>waiting for a player to reconnect…</div>
+
+  <button id="pause-btn" aria-label="Pause">⏸</button>
+  <button id="help-btn" aria-label="How to play">?</button>
+  <div id="help-overlay">
+    <h2>HOW TO PLAY</h2>
+    <div id="help-list"></div>
+    <div id="sens-row">
+      <label for="sens">Movement sensitivity</label>
+      <input id="sens" type="range" min="0.4" max="1.2" step="0.05" value="0.85">
+      <span id="sens-val">0.85</span>
+    </div>
+    <button id="help-close">GOT IT</button>
+  </div>
+
+  <script type="module" src="js/controller.js"></script>
+</body>
+</html>
