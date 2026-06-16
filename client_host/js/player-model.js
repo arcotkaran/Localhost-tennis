@@ -86,29 +86,58 @@ export const PIVOT_GROUPS = ['head', 'legL', 'legR', 'armL', 'armR'];
 export const FACE_PARTS = ['eyeL', 'eyeR', 'browL', 'browR', 'mouth'];
 
 // ----- procedural swing animation -----
-// t01: 0 at swing start, 1 at completion. Returns radians for the racket
-// arm and torso. Zero at both endpoints, peak action in the middle.
+// A real strike, not a symmetric wave: the racket loads (a quick wind-up),
+// drives THROUGH the ball at contact (early, so it's synced to the 'hit'
+// event), follows through across the body, then recovers to the ready stance.
+// Distinct per shot. Returns radians for the racket arm (armSwing = forward/up
+// about the shoulder, armAcross = across-body sweep), the off arm, torso twist,
+// and a crouch. Settles near rest at both endpoints so it blends with idle.
 
-export const SWING_DURATION = 0.34; // seconds
+export const SWING_DURATION = 0.40;  // seconds
+export const SWING_CONTACT = 0.18;   // fraction of the swing where the racket meets the ball
+
+const lerp = (a, b, u) => a + (b - a) * u;
+
+// Keyframed scalar over a swing: ready → wind-up → contact → follow → ready.
+// Contact lands at SWING_CONTACT so the forward swing coincides with the hit.
+function kf(t, ready, windup, contact, follow) {
+  if (t < 0.10) return lerp(ready, windup, t / 0.10);                       // quick load
+  if (t < SWING_CONTACT) return lerp(windup, contact, (t - 0.10) / (SWING_CONTACT - 0.10)); // drive to the ball
+  if (t < 0.5) return lerp(contact, follow, (t - SWING_CONTACT) / (0.5 - SWING_CONTACT));    // follow-through
+  return lerp(follow, ready, (t - 0.5) / 0.5);                              // recover
+}
+
+// Per shot: armSwing [ready, windup, contact, follow], armAcross [...], and
+// torsoTwist amplitude (scaled by the same envelope shape), crouch, overhead.
+const SWINGS = {
+  // flat drive: load low/back, drive forward, follow high across the body
+  flat:    { arm: [0.12, -0.7, 1.2, 2.0], across: [0.2, 0.5, -0.3, -1.0], twist: 0.6, crouch: 0.12 },
+  // topspin: a steeper low-to-high brush
+  topspin: { arm: [0.12, -0.9, 1.3, 2.4], across: [0.2, 0.5, -0.4, -1.1], twist: 0.7, crouch: 0.16 },
+  // slice: a high-to-low chop forward
+  slice:   { arm: [0.12, 1.0, 0.3, -0.5], across: [-0.2, -0.5, 0.2, 0.7], twist: -0.5, crouch: 0.12 },
+  // lob: open-faced lift, gentler
+  lob:     { arm: [0.12, -0.4, 0.9, 1.5], across: [0.1, 0.2, -0.1, -0.4], twist: -0.3, crouch: 0.18 },
+  // volley: a compact punch out front
+  volley:  { arm: [0.12, 0.0, 0.85, 0.95], across: [0.0, 0.1, -0.1, -0.2], twist: 0.2, crouch: 0.05 },
+  // smash: racket up overhead, then drive down and through
+  smash:   { arm: [-0.2, -2.7, -1.3, 0.8], across: [0.0, 0.1, 0.0, -0.2], twist: 0.4, crouch: 0.08 },
+};
 
 export function swingPose(action, t01) {
   const t = Math.max(0, Math.min(1, t01));
-  const arc = Math.sin(t * Math.PI);              // 0 → 1 → 0
-  const whip = Math.sin(t * Math.PI * 2) * 0.5;   // follow-through wobble
-  switch (action) {
-    case 'smash':
-      return { armSwing: -2.6 * arc, armLSwing: -0.6 * arc, torsoTwist: 0.35 * arc, crouch: 0.08 * arc, overhead: true };
-    case 'lob':
-      return { armSwing: 1.5 * arc, armLSwing: -0.3 * arc, torsoTwist: -0.25 * arc, crouch: 0.18 * arc, overhead: false };
-    case 'slice':
-      return { armSwing: 1.1 * arc + whip * 0.2, armLSwing: 0.4 * arc, torsoTwist: -0.45 * arc, crouch: 0.12 * arc, overhead: false };
-    case 'volley':
-      return { armSwing: 0.8 * arc, armLSwing: 0.2 * arc, torsoTwist: 0.15 * arc, crouch: 0.05 * arc, overhead: false };
-    case 'topspin':
-      return { armSwing: 1.9 * arc + whip * 0.3, armLSwing: -0.5 * arc, torsoTwist: 0.6 * arc, crouch: 0.15 * arc, overhead: false };
-    default: // flat
-      return { armSwing: 1.6 * arc + whip * 0.25, armLSwing: -0.4 * arc, torsoTwist: 0.5 * arc, crouch: 0.1 * arc, overhead: false };
-  }
+  const s = SWINGS[action] ?? SWINGS.flat;
+  const arc = Math.sin(t * Math.PI);                 // 0→1→0 for the smoothly-scaled extras
+  const armSwing = kf(t, ...s.arm);
+  const armAcross = kf(t, ...s.across);
+  return {
+    armSwing,
+    armAcross,
+    armLSwing: -armSwing * 0.22 + (action === 'smash' ? -2.2 * arc * 0.5 : 0), // off arm counters; both up on a smash
+    torsoTwist: s.twist * arc,
+    crouch: s.crouch * arc,
+    overhead: action === 'smash',
+  };
 }
 
 // ----- cinematic pose presets (entry, handshakes, celebration) -----

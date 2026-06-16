@@ -534,6 +534,7 @@ function buildActors(players, characters) {
 
 function applyPose(actor, pose) {
   actor.pivots.armR.rotation.x = pose.armSwing ?? 0;
+  actor.pivots.armR.rotation.z = pose.armAcross ?? 0; // cross-body sweep (reset for non-swing poses)
   actor.pivots.armL.rotation.x = pose.armLSwing ?? -(pose.armSwing ?? 0) * 0.2;
   actor.pivots.legR.rotation.x = pose.legSwing ?? 0;
   actor.pivots.legL.rotation.x = pose.legLSwing ?? 0;

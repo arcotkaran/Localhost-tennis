@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthRecipe, recipeLoudness } from '../client_host/js/audio-synth.js';
 import { SAMPLES, AudioDirector } from '../client_host/js/audio-manager.js';
-import { playerModelSpec, swingPose, clipPose, CLIP_POSES, SWING_DURATION } from '../client_host/js/player-model.js';
+import { playerModelSpec, swingPose, clipPose, CLIP_POSES, SWING_DURATION, SWING_CONTACT } from '../client_host/js/player-model.js';
 import { ROSTER } from '../shared/roster.js';
 import { ACTIONS } from '../shared/protocol.js';
 import { CLIPS, entrySequence, postMatchSequence } from '../client_host/js/interactions.js';
@@ -134,20 +134,33 @@ test('each roster character yields a DISTINCT, recognizable model', () => {
 
 // ---------- animation curves ----------
 
-test('swing poses: rest at endpoints, peak mid-swing, smash goes overhead', () => {
+test('swing poses: a real strike — settle at endpoints, drive through contact, smash overhead', () => {
+  const samples = [0.1, SWING_CONTACT, 0.35, 0.5];
+  const peakOf = action => Math.max(...samples.map(t => Math.abs(swingPose(action, t).armSwing)));
   for (const action of ACTIONS) {
     const start = swingPose(action, 0);
-    const mid = swingPose(action, 0.5);
     const end = swingPose(action, 1);
-    assert.ok(Math.abs(start.armSwing) < 0.01 && Math.abs(end.armSwing) < 0.01,
-      `${action}: arm at rest at the endpoints`);
-    assert.ok(Math.abs(mid.armSwing) > 0.5, `${action}: real swing at the peak`);
-    assert.ok(Number.isFinite(mid.torsoTwist) && Number.isFinite(mid.crouch));
+    // Settles near the ready stance at both ends so it blends with idle (no pop).
+    assert.ok(Math.abs(start.armSwing) < 0.35 && Math.abs(end.armSwing) < 0.35,
+      `${action}: settles at the endpoints`);
+    assert.ok(peakOf(action) > 0.6, `${action}: a real swing happens`);
+    // The cross-body sweep is a distinct axis the renderer applies.
+    assert.ok(Number.isFinite(swingPose(action, SWING_CONTACT).armAcross), `${action}: has a sweep axis`);
+    const c = swingPose(action, SWING_CONTACT);
+    assert.ok(Number.isFinite(c.torsoTwist) && Number.isFinite(c.crouch));
   }
-  assert.equal(swingPose('smash', 0.5).overhead, true);
-  assert.ok(swingPose('smash', 0.5).armSwing < -2, 'smash arm rises overhead');
-  assert.ok(swingPose('volley', 0.5).armSwing < swingPose('topspin', 0.5).armSwing,
-    'volley is a compact punch, topspin a full swing');
+  // Smash goes overhead (arm strongly up = very negative) around the wind-up/contact.
+  const smashTop = Math.min(swingPose('smash', 0.1).armSwing, swingPose('smash', SWING_CONTACT).armSwing);
+  assert.ok(smashTop < -1.5, 'smash rises overhead');
+  assert.equal(swingPose('smash', SWING_CONTACT).overhead, true);
+  // Volley is a compact punch; a topspin drive is a fuller swing.
+  assert.ok(peakOf('volley') < peakOf('topspin'), 'volley is compact, topspin is a full swing');
+  // Distinct shots produce distinct contact-moment poses.
+  const fingerprints = new Set(ACTIONS.map(a => {
+    const p = swingPose(a, SWING_CONTACT);
+    return `${p.armSwing.toFixed(2)}|${p.armAcross.toFixed(2)}|${p.torsoTwist.toFixed(2)}`;
+  }));
+  assert.ok(fingerprints.size >= 5, 'shots have distinct swings');
   assert.ok(SWING_DURATION > 0.2 && SWING_DURATION < 0.6, 'swing duration is visible but snappy');
 });
 
