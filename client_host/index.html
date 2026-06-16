@@ -697,8 +697,9 @@ function endGameToMenu() {
   if (session.state === 'menu') return;
   matchLive = false;
   if (ws?.readyState === 1) ws.send(encode(MSG.MATCH_PHASE, { phase: 'lobby' }));
+  session.drainEvents();                       // discard any in-flight match events before teardown
   session.quitToMenu();
-  handleSessionEvents(session.drainEvents());
+  handleSessionEvents(session.drainEvents());   // now just the 'menu' event
 }
 function sendHapticTo(slot, pattern) {
   if (ws?.readyState === 1) ws.send(encode(MSG.HAPTIC, { slot, pattern }));
@@ -1011,7 +1012,13 @@ function handleSessionEvents(events) {
         $('bracket-overlay').style.display = 'none';
         $('scoreboard').style.display = 'none';
         $('pause-btn').classList.remove('show');
-        if (userPaused) toggleUserPause();
+        // Clear any user-pause directly (toggleUserPause no-ops at the menu, which
+        // would otherwise leave the next match frozen on a stuck userPaused flag).
+        if (userPaused) {
+          userPaused = false;
+          $('userpause').classList.remove('show');
+          if (ws?.readyState === 1) ws.send(encode(MSG.PAUSE_STATE, { paused: false }));
+        }
         break;
     }
   }
@@ -1079,14 +1086,14 @@ function animateActors(dt) {
     p.t += dt;
     if (p.kind === 'puff') { p.m.scale.setScalar(1 + p.t * 7); p.m.position.y = 0.08 + p.t * 0.5; p.m.material.opacity = Math.max(0, 0.4 - p.t * 1.1); }
     else { p.m.scale.setScalar(1 + p.t * 5); p.m.material.opacity = Math.max(0, 0.55 - p.t * 1.5); }
-    if (p.t > 0.5) { scene.remove(p.m); dustPuffs.splice(i, 1); }
+    if (p.t > 0.5) { scene.remove(p.m); p.m.geometry.dispose(); p.m.material.dispose(); dustPuffs.splice(i, 1); }
   }
   for (let i = sparks.length - 1; i >= 0; i--) {
     const s = sparks[i]; s.t += dt;
     const k = s.t / 0.18;
     s.m.scale.setScalar(1 + k * (s.big ? 3.5 : 2.2));
     s.m.material.opacity = Math.max(0, 0.95 - k * 0.95);
-    if (s.t > 0.18) { scene.remove(s.m); sparks.splice(i, 1); }
+    if (s.t > 0.18) { scene.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); sparks.splice(i, 1); }
   }
 }
 

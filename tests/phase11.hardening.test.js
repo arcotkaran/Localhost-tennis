@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
-import { createTennisServer } from '../server/game-server.js';
+import { createTennisServer, isLoopback } from '../server/game-server.js';
 import { MSG, encode, decode } from '../shared/protocol.js';
 
 function open(port) {
@@ -166,6 +166,29 @@ test('mid-match leavers keep their seat (reconnect), but lobby return purges the
     assert.equal(reply.slot, 0, 'released seat is joinable again');
 
     for (const ws of [host, phoneB, thief, fresh]) ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+test('only a loopback connection can register as the TV host', async () => {
+  assert.equal(isLoopback('127.0.0.1'), true);
+  assert.equal(isLoopback('::1'), true);
+  assert.equal(isLoopback('::ffff:127.0.0.1'), true);
+  assert.equal(isLoopback('192.168.0.9'), false);
+
+  const server = await createTennisServer({ port: 0 });
+  try {
+    // A LAN phone that read the room code off the TV tries to impersonate the host.
+    const lanWs = { _socket: { remoteAddress: '192.168.0.9' }, readyState: 1, send() {} };
+    server.onMessage(lanWs, { type: MSG.HOST_REGISTER, code: server.roomCode });
+    assert.notEqual(server.hostWs, lanWs, 'a remote phone cannot become the host');
+    assert.equal(server.hostWs, null);
+
+    // The real TV, on the host machine (loopback), registers fine.
+    const tvWs = { _socket: { remoteAddress: '127.0.0.1' }, readyState: 1, send() {} };
+    server.onMessage(tvWs, { type: MSG.HOST_REGISTER, code: server.roomCode });
+    assert.equal(server.hostWs, tvWs, 'the loopback TV registers');
   } finally {
     await server.stop();
   }

@@ -16,6 +16,12 @@ const MIME = {
   '.glb': 'model/gltf-binary', '.json': 'application/json',
 };
 
+// The TV renderer always runs on the host machine (it drives the HDMI TV), so
+// it connects over loopback; LAN phones never do. Used to gate host-only auth.
+export function isLoopback(addr) {
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
 export class TennisServer extends EventEmitter {
   constructor({ port = 0, staticRoot = null, lanHost = null, now = () => performance.now() } = {}) {
     super();
@@ -59,8 +65,7 @@ export class TennisServer extends EventEmitter {
     // Dev-only visual verification: the TV page POSTs a rendered frame here
     // (loopback only) so automated checks can inspect actual pixels.
     if (req.url === '/api/debug/frame' && req.method === 'POST') {
-      const remote = req.socket.remoteAddress;
-      if (!(remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1') || !this.staticRoot) {
+      if (!isLoopback(req.socket.remoteAddress) || !this.staticRoot) {
         res.writeHead(403); res.end(); return;
       }
       const chunks = [];
@@ -82,9 +87,7 @@ export class TennisServer extends EventEmitter {
     // The TV view (running on the host machine) fetches the room code here.
     // Loopback-only: phones on the LAN must read the code off the TV screen.
     if (req.url === '/api/info') {
-      const remote = req.socket.remoteAddress;
-      const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
-      if (isLoopback) {
+      if (isLoopback(req.socket.remoteAddress)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         const lanUrl = this.lanHost ? `http://${this.lanHost}:${this.port}/` : null;
         res.end(JSON.stringify({ roomCode: this.roomCode, port: this.port, lanUrl }));
@@ -129,7 +132,10 @@ export class TennisServer extends EventEmitter {
   onMessage(ws, msg) {
     switch (msg.type) {
       case MSG.HOST_REGISTER:
-        if (msg.code === this.roomCode) this.hostWs = ws;
+        // Only the host machine (loopback) may register as the TV — a LAN phone
+        // that read the room code off the screen must not be able to impersonate
+        // it and drive game state.
+        if (msg.code === this.roomCode && isLoopback(ws._socket?.remoteAddress)) this.hostWs = ws;
         return;
       case MSG.JOIN: return this.handleJoin(ws, msg);
       case MSG.SET_NAME: {
@@ -254,7 +260,7 @@ export class TennisServer extends EventEmitter {
         resumed: true, snapshot: this.gameState.snapshot,
       }));
       ws.send(encode(MSG.LOBBY_STATE, { atMenu: this.atMenu }));
-      this.broadcast(MSG.PLAYER_JOINED, { slot: existing.slot, name: existing.name });
+      this.broadcast(MSG.PLAYER_JOINED, { slot: existing.slot, name: existing.name }, ws);
       this.gameState.pausedFor = this.gameState.pausedFor.filter(id => id !== playerId);
       this.emit('reconnect', { playerId, slot: existing.slot });
       if (this.gameState.phase === 'paused' && this.gameState.pausedFor.length === 0) {

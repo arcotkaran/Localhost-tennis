@@ -94,7 +94,10 @@ function connect(code) {
       case MSG.LOBBY_STATE:
         // TV at the menu → show the Start Game panel; in a match → hide it.
         showStartPanel(!!msg.atMenu);
-        if (msg.atMenu) $('pause-overlay').style.display = 'none'; // back at menu = not paused
+        if (msg.atMenu) { // back at menu: clear any leftover pause/serve prompts
+          $('pause-overlay').style.display = 'none';
+          $('serve-cue').classList.remove('show');
+        }
         break;
     }
   };
