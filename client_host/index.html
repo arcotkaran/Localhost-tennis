@@ -165,7 +165,7 @@ import { COURT } from '../shared/physics.js';
 import { SessionController, actorPose } from '../shared/session.js';
 import { splitScreenLayout } from '../shared/splitscreen.js';
 import { ROSTER, getPlayer } from '../shared/roster.js';
-import { MSG, encode, decode, HAPTIC_PATTERNS } from '../shared/protocol.js';
+import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig } from '../shared/protocol.js';
 import { HOW_TO_PLAY } from '../shared/howto.js';
 import { AudioDirector } from './js/audio-manager.js';
 import { CrowdManager } from './js/crowd-manager.js';
@@ -192,6 +192,18 @@ wireChoices('mode-row', 'mode', m => { mode = m; buildCharSelects(); });
 wireChoices('surface-row', 'surface', s => { surface = s; });
 wireChoices('format-row', 'format', f => { format = f; });
 wireChoices('difficulty-row', 'difficulty', d => { difficulty = parseFloat(d); });
+
+// Programmatically highlight a menu choice (used when a phone launches the
+// match — the TV menu visibly reflects the phone's picks). Returns false if
+// no button matches (e.g. a non-preset difficulty).
+function applyChoice(rowId, attr, value) {
+  const row = $(rowId);
+  const btn = row.querySelector(`[data-${attr}="${value}"]`);
+  if (!btn) return false;
+  for (const b of row.querySelectorAll('.choice')) b.classList.remove('sel');
+  btn.classList.add('sel');
+  return true;
+}
 
 function buildCharSelects() {
   const row = $('char-row');
@@ -601,6 +613,13 @@ addEventListener('keydown', e => {
 function sendHapticTo(slot, pattern) {
   if (ws?.readyState === 1) ws.send(encode(MSG.HAPTIC, { slot, pattern }));
 }
+// Tell phones whether the TV is at the menu (show their Start Game panel) or
+// in a match (show the gamepad). Broadcast on connect and on every transition.
+let lastAtMenu = null;
+function sendLobbyState() {
+  lastAtMenu = session.state === 'menu';
+  if (ws?.readyState === 1) ws.send(encode(MSG.LOBBY_STATE, { atMenu: lastAtMenu }));
+}
 const crowd = new CrowdManager({ audio, sendHaptic: p => sendHapticTo(null, p) });
 
 async function initNetwork() {
@@ -616,7 +635,10 @@ async function initNetwork() {
   renderJoinQR(lanUrl);
   try {
     ws = new WebSocket(`ws://${location.host}`);
-    ws.onopen = () => { if (code) ws.send(encode(MSG.HOST_REGISTER, { code })); };
+    ws.onopen = () => {
+      if (code) ws.send(encode(MSG.HOST_REGISTER, { code }));
+      sendLobbyState(); // tell phones whether we're at the menu or in a match
+    };
     ws.onmessage = ev => {
       const msg = decode(ev.data);
       if (!msg) return;
@@ -639,6 +661,9 @@ async function initNetwork() {
         case MSG.GAME_PAUSED: paused = true; $('pause').style.display = 'flex'; break;
         case MSG.GAME_RESUMED: paused = false; $('pause').style.display = 'none'; break;
         case MSG.PAUSE_REQUEST: toggleUserPause(); break; // a phone hit pause
+        case MSG.LAUNCH: // a phone pressed Start Game — honored only at the menu
+          if (session.state === 'menu') launchFromConfig(sanitizeLaunchConfig(msg.config));
+          break;
         case MSG.INPUT:
           if (!paused && !userPaused) session.handleInput(msg.slot, { move: msg.move, action: msg.action, aim: msg.aim, power: msg.power, sens: msg.sens });
           break;
@@ -677,7 +702,7 @@ let activeInteractions = [];
 let emotions = null;
 let teamNames = ['Blue', 'Red'];
 
-$('start').addEventListener('click', () => {
+function startMatch() {
   ensureAudioCtx();
   const selects = [...$('char-row').querySelectorAll('select')];
   courtMat.map = courtTexture(surface);
@@ -700,7 +725,24 @@ $('start').addEventListener('click', () => {
     session.startQuickMatch({ mode, surface, format, characters, difficulty });
   }
   $('menu').style.display = 'none';
-});
+}
+$('start').addEventListener('click', startMatch);
+
+// Launch a Quick Match from a phone's Start Game panel. We mirror the phone's
+// picks onto the menu (so the TV visibly updates), then run the exact same
+// start flow the START button uses. Honored ONLY while the TV is at the menu.
+function launchFromConfig(cfg) {
+  if (session.state !== 'menu') return;
+  play = 'quick';
+  applyChoice('play-row', 'play', 'quick');
+  $('mode-row').style.display = 'flex';
+  mode = cfg.mode;             applyChoice('mode-row', 'mode', cfg.mode);
+  surface = cfg.surface;       applyChoice('surface-row', 'surface', cfg.surface);
+  format = cfg.format;         applyChoice('format-row', 'format', cfg.format);
+  difficulty = cfg.difficulty; applyChoice('difficulty-row', 'difficulty', String(cfg.difficulty));
+  buildCharSelects();
+  startMatch();
+}
 
 $('next-match').addEventListener('click', () => {
   $('bracket-overlay').style.display = 'none';
@@ -941,6 +983,9 @@ setInterval(() => {
     }
     handleSessionEvents(session.drainEvents());
   } else acc = 0;
+  // Broadcast menu↔match transitions so phones flip between the Start Game
+  // panel and the gamepad (catches every path: start, match end, trophy→menu).
+  if ((session.state === 'menu') !== lastAtMenu) sendLobbyState();
 }, 8);
 
 // ---------- render loop ----------

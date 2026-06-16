@@ -45,6 +45,7 @@ function showConnectScreen(message) {
   $('gamepad').classList.remove('connected');
   $('connect').style.display = 'flex';
   $('pause-overlay').style.display = 'none';
+  $('startpanel').classList.remove('show');
   $('status').textContent = message;
 }
 
@@ -81,6 +82,10 @@ function connect(code) {
       case MSG.PAUSE_STATE:
         $('pause-overlay').textContent = '⏸ Paused — tap pause on any phone or the TV to resume';
         $('pause-overlay').style.display = msg.paused ? 'flex' : 'none';
+        break;
+      case MSG.LOBBY_STATE:
+        // TV at the menu → show the Start Game panel; in a match → hide it.
+        showStartPanel(!!msg.atMenu);
         break;
     }
   };
@@ -240,6 +245,32 @@ $('help-close').addEventListener('click', () => { $('help-overlay').style.displa
 
 // ---- pause (any phone can pause; the TV decides and echoes the state) ----
 $('pause-btn').addEventListener('click', () => send(encode(MSG.PAUSE_REQUEST, {})));
+
+// ---- launch from phone: choose settings + start the match on the TV ----
+const launchCfg = { mode: 'single', surface: 'hard', format: 'short', difficulty: 0.72 };
+function wireStartChoice(rowId, attr, cast = v => v) {
+  $(rowId).addEventListener('click', e => {
+    const btn = e.target.closest(`[data-${attr}]`);
+    if (!btn) return;
+    for (const b of $(rowId).querySelectorAll('.sp-choice')) b.classList.remove('sel');
+    btn.classList.add('sel');
+    launchCfg[attr] = cast(btn.dataset[attr]);
+  });
+}
+wireStartChoice('sp-mode', 'mode');
+wireStartChoice('sp-surface', 'surface');
+wireStartChoice('sp-format', 'format');
+wireStartChoice('sp-difficulty', 'difficulty', parseFloat);
+
+function showStartPanel(show) {
+  $('startpanel').classList.toggle('show', show && hasJoined);
+}
+$('startgame-btn').addEventListener('click', () => {
+  send(encode(MSG.LAUNCH, { config: launchCfg }));
+  const b = $('startgame-btn');
+  b.textContent = 'STARTING…';
+  setTimeout(() => { b.textContent = 'START GAME ▶'; }, 2500);
+});
 
 // ---- movement sensitivity slider (persisted; sent with the next move) ----
 const sensInput = $('sens');

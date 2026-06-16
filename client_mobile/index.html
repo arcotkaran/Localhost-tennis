@@ -49,6 +49,17 @@
 
   #pause-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.75); font-size: 24px; z-index: 20; text-align: center; }
 
+  /* ---- Start Game panel (shown while the TV is at the menu) ---- */
+  #startpanel { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: linear-gradient(160deg, #0c2a16, #07180c); z-index: 16; padding: 14px; overflow-y: auto; }
+  #startpanel.show { display: flex; }
+  #startpanel h2 { font-size: 20px; letter-spacing: 2px; color: #c8f04a; }
+  .sp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .sp-row > span { width: 64px; text-align: right; color: #9fd8a8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .sp-choice { font-size: 14px; padding: 7px 13px; border-radius: 9px; border: 1px solid #3a7d44; background: rgba(16,48,26,.8); color: #eaf5ea; }
+  .sp-choice.sel { background: #c8f04a; color: #11300f; border-color: #c8f04a; font-weight: 700; }
+  #startgame-btn { margin-top: 6px; font-size: 19px; padding: 12px 44px; border-radius: 12px; border: none; background: linear-gradient(135deg, #d6ff5c, #aade30); color: #11300f; font-weight: 800; letter-spacing: 1px; }
+  .sp-hint { color: #79a884; font-size: 12px; text-align: center; max-width: 420px; }
+
   /* ---- help ---- */
   #help-btn { position: absolute; top: 8px; right: 8px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 19px; font-weight: 700; }
   #pause-btn { position: absolute; top: 8px; right: 54px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 16px; }
@@ -86,6 +97,32 @@
       <div id="shot-flash"></div>
     </div>
     <div id="serve-cue">YOUR SERVE — swipe!</div>
+  </div>
+
+  <div id="startpanel">
+    <h2>🎾 START A MATCH</h2>
+    <div class="sp-row" id="sp-mode"><span>Mode</span>
+      <button class="sp-choice sel" data-mode="single">vs AI</button>
+      <button class="sp-choice" data-mode="1v1">1v1</button>
+      <button class="sp-choice" data-mode="2v2">2v2</button>
+    </div>
+    <div class="sp-row" id="sp-surface"><span>Surface</span>
+      <button class="sp-choice sel" data-surface="hard">Hard</button>
+      <button class="sp-choice" data-surface="clay">Clay</button>
+      <button class="sp-choice" data-surface="grass">Grass</button>
+    </div>
+    <div class="sp-row" id="sp-format"><span>Format</span>
+      <button class="sp-choice sel" data-format="short">Short</button>
+      <button class="sp-choice" data-format="oneSet">1 Set</button>
+      <button class="sp-choice" data-format="bestOf3">Best of 3</button>
+    </div>
+    <div class="sp-row" id="sp-difficulty"><span>AI</span>
+      <button class="sp-choice" data-difficulty="0.5">Easy</button>
+      <button class="sp-choice sel" data-difficulty="0.72">Normal</button>
+      <button class="sp-choice" data-difficulty="0.92">Hard</button>
+    </div>
+    <button id="startgame-btn">START GAME ▶</button>
+    <div class="sp-hint">Starts the match on the TV — no need to touch the laptop. Empty seats are AI.</div>
   </div>
 
   <div id="pause-overlay">Game paused —<br>waiting for a player to reconnect…</div>

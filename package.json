@@ -20,7 +20,8 @@
     "test:phase12": "node --test tests/phase12.gameplay.test.js",
     "test:phase13": "node --test tests/phase13.shipprep.test.js",
     "test:phase14": "node --test tests/phase14.controls.test.js",
-    "test:phase15": "node --test tests/phase15.realmatch.test.js"
+    "test:phase15": "node --test tests/phase15.realmatch.test.js",
+    "test:phase16": "node --test tests/phase16.launch.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

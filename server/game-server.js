@@ -28,6 +28,7 @@ export class TennisServer extends EventEmitter {
     this.slots = new Array(MAX_PLAYERS).fill(null); // slot -> playerId
     this.hostWs = null;
     this.lag = new LagCompensator();
+    this.atMenu = true;        // TV is showing the menu (vs. in a match) — last value the host reported
     this.gameState = {
       phase: 'lobby',      // lobby | playing | paused
       snapshot: null,      // exact state saved at pause
@@ -168,6 +169,23 @@ export class TennisServer extends EventEmitter {
         this.broadcast(MSG.PAUSE_STATE, { paused: !!msg.paused }, this.hostWs);
         return;
       }
+      case MSG.LAUNCH: {
+        // A phone wants to start the match from its "Start Game" panel — forward
+        // the chosen config to the TV, which owns the start flow and only honors
+        // it while it's actually at the menu.
+        if (ws === this.hostWs) return;
+        if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.LAUNCH, { config: msg.config ?? {} }));
+        return;
+      }
+      case MSG.LOBBY_STATE: {
+        // TV tells phones whether it's at the menu (show the Start Game panel)
+        // or in a match (show the gamepad). Cache it so a phone that joins later
+        // is told the current state immediately (see handleJoin).
+        if (ws !== this.hostWs) return;
+        this.atMenu = !!msg.atMenu;
+        this.broadcast(MSG.LOBBY_STATE, { atMenu: this.atMenu }, this.hostWs);
+        return;
+      }
       case MSG.PING: {
         const serverT = this.now();
         ws.send(encode(MSG.PONG, { t: msg.t, serverT }));
@@ -210,6 +228,7 @@ export class TennisServer extends EventEmitter {
         slot: existing.slot, roomCode: this.roomCode,
         resumed: true, snapshot: this.gameState.snapshot,
       }));
+      ws.send(encode(MSG.LOBBY_STATE, { atMenu: this.atMenu }));
       this.gameState.pausedFor = this.gameState.pausedFor.filter(id => id !== playerId);
       this.emit('reconnect', { playerId, slot: existing.slot });
       if (this.gameState.phase === 'paused' && this.gameState.pausedFor.length === 0) {
@@ -226,6 +245,7 @@ export class TennisServer extends EventEmitter {
     this.players.set(playerId, { slot, name: name ?? `Player ${slot + 1}`, ws, connected: true });
     ws._playerId = playerId;
     ws.send(encode(MSG.JOINED, { slot, roomCode: this.roomCode, resumed: false }));
+    ws.send(encode(MSG.LOBBY_STATE, { atMenu: this.atMenu }));
     this.broadcast(MSG.PLAYER_JOINED, { slot, name: name ?? `Player ${slot + 1}` }, ws);
     this.emit('join', { playerId, slot });
   }
