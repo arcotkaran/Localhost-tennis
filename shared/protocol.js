@@ -9,6 +9,7 @@ export const MSG = {
   HOST_REGISTER: 'host',       // { code } — the TV renderer attaches itself
   MATCH_PHASE: 'match_phase',   // { phase: 'playing'|'lobby', snapshot? } — host → server
   LAUNCH: 'launch',             // phone → server → host: { config:{mode,surface,format,difficulty} }
+  SET_NAME: 'set_name',         // phone → server: { name } — change my display name; server re-broadcasts PLAYER_JOINED
 
   // server -> client
   JOINED: 'joined',             // { slot, roomCode, resumed, snapshot? }
@@ -59,6 +60,16 @@ export const HAPTIC_PATTERNS = {
 };
 
 export const MAX_PLAYERS = 4;
+
+// Player display names typed on the phone. Keep them short so they fit the TV
+// scoreboard and banners; null means "no name given" (caller substitutes a
+// default like "Player 2").
+export const MAX_NAME_LEN = 14;
+export function cleanName(name) {
+  if (typeof name !== 'string') return null;
+  const t = name.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME_LEN);
+  return t.length ? t : null;
+}
 
 export function encode(type, payload = {}) {
   return JSON.stringify({ type, ...payload });

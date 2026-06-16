@@ -15,6 +15,8 @@
   /* ---- Connect screen ---- */
   #connect { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 10; }
   #connect h1 { font-size: 28px; letter-spacing: 2px; }
+  #name-input { font-size: 22px; width: 12ch; text-align: center; border: 2px solid #3a7d44; border-radius: 12px; background: #10301a; color: #eaf5ea; padding: 8px 12px; }
+  #name-input::placeholder { color: #6fae7e; }
   #code-input { font-size: 40px; width: 5ch; text-align: center; letter-spacing: 8px; border: 2px solid #3a7d44; border-radius: 12px; background: #10301a; color: #eaf5ea; padding: 8px; }
   #join-btn { font-size: 22px; padding: 14px 56px; border-radius: 12px; border: none; background: #c8f04a; color: #11300f; font-weight: 700; }
   #status { min-height: 24px; color: #9fd8a8; }
@@ -69,7 +71,9 @@
   #help-list b { color: #c8f04a; font-size: 14px; text-align: right; white-space: nowrap; }
   #help-list span { color: #cfe8d4; font-size: 14px; }
   #help-close { margin-top: 16px; font-size: 16px; padding: 10px 38px; border-radius: 10px; border: none; background: #c8f04a; color: #11300f; font-weight: 700; }
-  #sens-row { margin-top: 16px; display: flex; align-items: center; gap: 12px; color: #cfe8d4; font-size: 14px; }
+  #name-row { margin-top: 16px; display: flex; align-items: center; gap: 12px; color: #cfe8d4; font-size: 14px; }
+  #name-row input { font-size: 16px; width: 12ch; border: 1px solid #3a7d44; border-radius: 8px; background: #10301a; color: #eaf5ea; padding: 6px 10px; }
+  #sens-row { margin-top: 12px; display: flex; align-items: center; gap: 12px; color: #cfe8d4; font-size: 14px; }
   #sens-row input[type=range] { width: 180px; accent-color: #c8f04a; }
   #sens-val { color: #c8f04a; font-weight: 700; min-width: 2.5ch; }
 </style>
@@ -77,6 +81,7 @@
 <body>
   <div id="connect">
     <h1>🎾 LOCAL TENNIS</h1>
+    <input id="name-input" type="text" maxlength="14" placeholder="Your name" aria-label="Your name" autocomplete="off">
     <input id="code-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000" aria-label="Room code">
     <button id="join-btn">JOIN</button>
     <div id="status"></div>
@@ -132,6 +137,10 @@
   <div id="help-overlay">
     <h2>HOW TO PLAY</h2>
     <div id="help-list"></div>
+    <div id="name-row">
+      <label for="name-edit">Your name</label>
+      <input id="name-edit" type="text" maxlength="14" placeholder="Your name" autocomplete="off">
+    </div>
     <div id="sens-row">
       <label for="sens">Movement sensitivity</label>
       <input id="sens" type="range" min="0.4" max="1.2" step="0.05" value="0.85">

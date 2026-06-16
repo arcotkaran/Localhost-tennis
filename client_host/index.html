@@ -162,7 +162,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { COURT } from '../shared/physics.js';
-import { SessionController, actorPose } from '../shared/session.js';
+import { SessionController, actorPose, teamDisplayNames } from '../shared/session.js';
 import { splitScreenLayout } from '../shared/splitscreen.js';
 import { ROSTER, getPlayer } from '../shared/roster.js';
 import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig } from '../shared/protocol.js';
@@ -597,6 +597,7 @@ function playDescriptors() {
 // ---------- networking ----------
 let ws = null, paused = false, userPaused = false, matchLive = false;
 const connectedSlots = new Set();
+const slotNames = {}; // slot → the name the phone on that slot typed
 
 // User-initiated pause (distinct from the disconnect pause). Freezes the sim,
 // shows an overlay, and tells every phone. Triggered by the TV button/keys or
@@ -645,8 +646,9 @@ async function initNetwork() {
       switch (msg.type) {
         case MSG.PLAYER_JOINED:
           connectedSlots.add(msg.slot);
+          if (msg.name) slotNames[msg.slot] = msg.name; // also fires on a SET_NAME change
           session.attachSlot(msg.slot);
-          updatePlayersLabel();
+          refreshNames();
           break;
         case MSG.PLAYER_LEFT:
           // Mirror the server: a drop during live play holds the seat for
@@ -654,9 +656,10 @@ async function initNetwork() {
           // next match doesn't attach a player to a phone that's gone.
           if (!matchLive) {
             connectedSlots.delete(msg.slot);
+            delete slotNames[msg.slot];
             session.detachSlot(msg.slot);
           }
-          updatePlayersLabel();
+          refreshNames();
           break;
         case MSG.GAME_PAUSED: paused = true; $('pause').style.display = 'flex'; break;
         case MSG.GAME_RESUMED: paused = false; $('pause').style.display = 'none'; break;
@@ -676,7 +679,18 @@ async function initNetwork() {
 function updatePlayersLabel() {
   $('players').textContent = connectedSlots.size === 0
     ? 'No phones connected yet — AI fills every seat.'
-    : `Phones on slots: ${[...connectedSlots].sort().join(', ')}  (empty seats are AI)`;
+    : [...connectedSlots].sort().map(s => slotNames[s] ?? `Slot ${s}`).join(' · ') + '  (empty seats are AI)';
+}
+
+// Recompute the team labels (scoreboard + banners) from the current players and
+// the names their phones typed, and push them to the scoreboard. Falls back to
+// character surnames, then Blue/Red.
+function refreshNames() {
+  const players = session.director?.players;
+  teamNames = players ? teamDisplayNames(players, slotNames) : ['Blue', 'Red'];
+  $('name0').textContent = teamNames[0];
+  $('name1').textContent = teamNames[1];
+  updatePlayersLabel();
 }
 
 // Render the join QR (and URL text) from the LAN url the server reports.
@@ -797,13 +811,7 @@ function onMatchCreated(title) {
   emotions = new EmotionEngine(session.director.players.map(p => p.team));
   buildCameras(session.matchMode);
   for (const slot of connectedSlots) session.attachSlot(slot);
-  teamNames = [0, 1].map(team => {
-    const named = session.director.players.filter(p => p.team === team && p.character);
-    return named.length ? named.map(p => p.character.name.split(' ').at(-1)).join(' / ')
-      : (team === 0 ? 'Blue' : 'Red');
-  });
-  $('name0').textContent = teamNames[0];
-  $('name1').textContent = teamNames[1];
+  refreshNames(); // team labels from typed phone names, else character surnames, else Blue/Red
   $('scoreboard').style.display = 'block';
   $('pause-btn').classList.add('show');
   updateScoreboard({ setsWon: [0, 0], games: [0, 0], display: '0-0' });

@@ -29,6 +29,7 @@ if (!playerId) {
   playerId = `phone-${Math.random().toString(36).slice(2, 10)}`;
   localStorage.setItem('tennis_player_id', playerId);
 }
+let playerName = localStorage.getItem('tennis_player_name') || '';
 
 const env = {
   userAgent: navigator.userAgent,
@@ -52,7 +53,7 @@ function showConnectScreen(message) {
 function connect(code) {
   if (ws) { ws.onclose = null; try { ws.close(); } catch {} }
   ws = new WebSocket(`ws://${location.host}`);
-  ws.onopen = () => ws.send(encode(MSG.JOIN, { code, playerId }));
+  ws.onopen = () => ws.send(encode(MSG.JOIN, { code, playerId, name: playerName }));
   ws.onmessage = ev => {
     const msg = decode(ev.data);
     if (!msg) return;
@@ -228,8 +229,26 @@ gp.addEventListener('mouseup', e => {
   else if (swipeTouchId === 'mouse') endSwipe({ identifier: 'mouse', clientX: e.clientX, clientY: e.clientY });
 });
 
+// ---------- player name (typed on connect, changeable in the help panel) ----------
+// Both inputs stay in sync; the name persists and, while connected, a change is
+// pushed to the server (SET_NAME → re-broadcast so the TV updates live).
+const nameInput = $('name-input');
+const nameEdit = $('name-edit');
+nameInput.value = playerName;
+nameEdit.value = playerName;
+function setName(raw) {
+  playerName = (raw ?? '').slice(0, 14);
+  localStorage.setItem('tennis_player_name', playerName);
+  if (nameInput.value !== playerName) nameInput.value = playerName;
+  if (nameEdit.value !== playerName) nameEdit.value = playerName;
+  if (hasJoined) send(encode(MSG.SET_NAME, { name: playerName }));
+}
+nameInput.addEventListener('input', () => setName(nameInput.value));
+nameEdit.addEventListener('input', () => setName(nameEdit.value));
+
 // ---------- connect screen ----------
 $('join-btn').addEventListener('click', () => {
+  setName(nameInput.value); // capture the latest name before connecting
   const code = $('code-input').value.trim();
   if (!/^\d{4}$/.test(code)) { $('status').textContent = 'Enter the 4-digit code on the TV'; return; }
   $('status').textContent = 'Connecting…';

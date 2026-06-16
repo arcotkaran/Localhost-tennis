@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { MSG, MAX_PLAYERS, encode, decode } from '../shared/protocol.js';
+import { MSG, MAX_PLAYERS, encode, decode, cleanName } from '../shared/protocol.js';
 import { LagCompensator } from './lag-compensator.js';
 
 const MIME = {
@@ -128,6 +128,17 @@ export class TennisServer extends EventEmitter {
         if (msg.code === this.roomCode) this.hostWs = ws;
         return;
       case MSG.JOIN: return this.handleJoin(ws, msg);
+      case MSG.SET_NAME: {
+        // A phone changed its display name mid-session — update it and tell
+        // everyone (re-using PLAYER_JOINED so the TV's one handler updates).
+        const playerId = ws._playerId;
+        const player = playerId && this.players.get(playerId);
+        const cleaned = cleanName(msg.name);
+        if (!player || !cleaned) return;
+        player.name = cleaned;
+        this.broadcast(MSG.PLAYER_JOINED, { slot: player.slot, name: cleaned });
+        return;
+      }
       case MSG.MATCH_PHASE: {
         // The TV reports when play starts and ends. Without this, the
         // pause-on-disconnect machinery would never engage mid-match.
@@ -224,11 +235,15 @@ export class TennisServer extends EventEmitter {
       existing.ws = ws;
       existing.connected = true;
       ws._playerId = playerId;
+      // A reconnecting phone may carry an updated name (changed while away).
+      const cleaned = cleanName(name);
+      if (cleaned) existing.name = cleaned;
       ws.send(encode(MSG.JOINED, {
         slot: existing.slot, roomCode: this.roomCode,
         resumed: true, snapshot: this.gameState.snapshot,
       }));
       ws.send(encode(MSG.LOBBY_STATE, { atMenu: this.atMenu }));
+      this.broadcast(MSG.PLAYER_JOINED, { slot: existing.slot, name: existing.name });
       this.gameState.pausedFor = this.gameState.pausedFor.filter(id => id !== playerId);
       this.emit('reconnect', { playerId, slot: existing.slot });
       if (this.gameState.phase === 'paused' && this.gameState.pausedFor.length === 0) {
@@ -241,12 +256,13 @@ export class TennisServer extends EventEmitter {
       ws.send(encode(MSG.JOIN_ERROR, { reason: 'room_full' }));
       return;
     }
+    const displayName = cleanName(name) ?? `Player ${slot + 1}`;
     this.slots[slot] = playerId;
-    this.players.set(playerId, { slot, name: name ?? `Player ${slot + 1}`, ws, connected: true });
+    this.players.set(playerId, { slot, name: displayName, ws, connected: true });
     ws._playerId = playerId;
     ws.send(encode(MSG.JOINED, { slot, roomCode: this.roomCode, resumed: false }));
     ws.send(encode(MSG.LOBBY_STATE, { atMenu: this.atMenu }));
-    this.broadcast(MSG.PLAYER_JOINED, { slot, name: name ?? `Player ${slot + 1}` }, ws);
+    this.broadcast(MSG.PLAYER_JOINED, { slot, name: displayName }, ws);
     this.emit('join', { playerId, slot });
   }
 

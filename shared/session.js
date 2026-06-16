@@ -166,6 +166,27 @@ export class SessionController {
   }
 }
 
+// ----- display names (renderer helper, pure & testable) -----
+//
+// Build the two team labels for the scoreboard/banners. A player's name is, in
+// order of preference: the name typed on their attached phone (slotNames[slot]),
+// then their character's surname, then nothing. Doubles partners join with " / ".
+// A team with no named players falls back to "Blue" / "Red".
+export function teamDisplayNames(players, slotNames = {}) {
+  return [0, 1].map(team => {
+    const names = players
+      .filter(p => p.team === team)
+      .map(p => {
+        const typed = p.controlledBySlot != null ? slotNames[p.controlledBySlot] : null;
+        if (typed) return typed;
+        if (p.character?.name) return p.character.name.split(' ').at(-1);
+        return null;
+      })
+      .filter(Boolean);
+    return names.length ? names.join(' / ') : (team === 0 ? 'Blue' : 'Red');
+  });
+}
+
 // ----- cinematic position sampling (renderer helper, pure & testable) -----
 //
 // Converts an active timeline item into a world position/pose for an actor.
