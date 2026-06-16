@@ -20,12 +20,17 @@ npm start
 The console prints a **4-digit room code** and two URLs:
 
 - **TV view** — open on the host machine, fullscreen it on the TV.
-- **Phones** — each player opens the address on their phone (same Wi-Fi),
-  enters the room code, and gets a landscape gamepad: digital joystick +
-  FLAT / TOPSPIN / SLICE / LOB / SMASH / VOLLEY, with haptic feedback.
+- **Phones** — each player types a name, enters the room code, and gets a
+  landscape gamepad: a floating movement joystick on the left, swipe-to-hit
+  on the right (the swipe angle aims, its speed powers, its shape picks the
+  shot), with haptic feedback. Serving is two-step — tap to toss, swipe to
+  strike. A phone can even pick the settings and **start the match itself**,
+  so the laptop never has to be touched at the menu.
 
 If a phone drops mid-match the game pauses and snapshots the exact state;
-reopening the page reconnects to the same slot and resumes losslessly.
+reopening the page reconnects to the same slot and resumes losslessly. Player
+names show on the TV scoreboard and banners, and either the TV or a phone can
+end a match back to the menu.
 
 ## Architecture
 
@@ -73,9 +78,14 @@ npm run test:phase8    # session flow: quick/tournament, cinematics
 npm run test:phase9    # audio synthesis + model/animation specs
 npm run test:phase10   # emotions, how-to-play, stacked split
 npm run test:phase11   # pause sync, slot recycling, controller resilience
+npm run test:phase16   # launch a match from a phone (LAUNCH / LOBBY_STATE)
+npm run test:phase17   # player names: sanitize, team labels, propagation
+npm run test:phase18   # end-game: quit to menu from TV or phone
+npm run test:phase19   # serve faults & double faults
+npm run test:phase20   # tap-to-toss two-step serve
 ```
 
-139 tests across 13 gates, all passing (`npm test`).
+211 tests across 20 gates, all passing (`npm test`).
 
 ## Design constraints
 
