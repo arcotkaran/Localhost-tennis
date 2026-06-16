@@ -65,7 +65,7 @@ test('full AI-vs-AI match completes through the director on every surface', () =
     assert.ok(points.length >= 24, `${surface}: a real match was played (${points.length} points)`);
     const hits = events.filter(e => e.type === 'hit');
     assert.ok(hits.length > points.length, `${surface}: rallies actually happened`);
-    assert.ok(points.every(p => ['out', 'double_bounce', 'net'].includes(p.reason)), 'every point has a physical reason');
+    assert.ok(points.every(p => ['out', 'double_bounce', 'net', 'double_fault'].includes(p.reason)), 'every point has a physical reason');
   }
 });
 

@@ -49,6 +49,9 @@ export class GameDirector {
     this.difficulty = difficulty;
     this.score = new MatchScore({ bestOf });
     this.rng = mulberry32(seed);
+    // A SEPARATE stream for serve-fault randomness, so adding faults doesn't
+    // shift the main rng (AI movement/shots) and perturb every seeded test.
+    this.serveRng = mulberry32(seed + 777);
 
     const map = slotMapping(mode);
     this.map = map;
@@ -76,6 +79,9 @@ export class GameDirector {
     this.state = 'serve_pending'; // serve_pending | rally | finished
     this.serveTimer = SERVE_DELAY * 0.5;
     this.serveAnnounced = false;  // whether we've emitted serve_ready this point
+    this.serveNumber = 1;         // 1 = first serve, 2 = second serve (after a fault)
+    this.awaitingServeBounce = false; // a struck serve whose first bounce must land in the box
+    this.serveTarget = null;      // { dir, xSign } — the diagonal box the serve must hit
     this.lastHitTeam = null;
     this.lastShot = 'flat';
     this.rallyLength = 0;
@@ -149,7 +155,7 @@ export class GameDirector {
       if (human) {
         // Announce once that it's their serve, then wait for a button press.
         if (!this.serveAnnounced) {
-          this.emit('serve_ready', { team: server.team, player: server.index, slot: server.controlledBySlot });
+          this.emit('serve_ready', { team: server.team, player: server.index, slot: server.controlledBySlot, serveNumber: this.serveNumber });
           this.serveAnnounced = true;
         }
         if (server.armed) {
@@ -216,44 +222,49 @@ export class GameDirector {
     server.body.pos = { x: cornerX, z: teamSign * (COURT.length / 2 - 0.2) };
     server.body.vel = { x: 0, z: 0 };
 
-    // Aim diagonally into the opposite service box (cross-court). A human's
-    // swipe nudges the placement within the box; power → serve pace.
+    const isHuman = server.controlledBySlot !== null;
+    const serveSpeed = server.character?.traits.serveSpeed ?? 1;
+    const powerEff = isHuman ? (power ?? 0.6) : 0.7;        // AI hits a steady, competent serve
+    // Aim diagonally into the opposite service box (cross-court).
     const boxX = -side * teamSign * (COURT.singlesWidth / 4);
-    // Team 1's screen-right is world -x, so flip a human server's placement nudge.
-    const aimNudge = aim != null ? (servingTeam === 1 ? -aim : aim) : null;
-    const aimX = boxX + (aimNudge != null ? aimNudge * (COURT.singlesWidth / 4) : (this.rng() - 0.5) * 1.2);
-    const pace = (power != null ? 0.7 + 0.5 * power : 1) *
-      25 * (server.character?.traits.serveSpeed ?? 1) * (action === 'slice' ? 0.92 : 1);
+    this.serveTarget = { dir, xSign: Math.sign(boxX) };
+    // PACE comes straight from the serveSpeed trait + power (so a big server
+    // really does serve faster); the arc (vy) is then solved so it still lands
+    // in the box. A slice serve is a touch slower.
+    const pace = (16 + 10 * powerEff) * serveSpeed * (action === 'slice' ? 0.9 : 1);
     this.ball = new Ball({
       pos: { x: cornerX, y: 2.7, z: server.body.pos.z },
-      vel: { x: (aimX - cornerX) * 0.45, y: 1.0, z: dir * pace },
+      vel: { x: 0, y: 1.0, z: dir * pace },
       spin: { x: dir * (action === 'slice' ? -160 : 110), y: 0, z: 0 },
     });
-    // Make sure the serve clears the net (it's struck from up high, so this
-    // only nudges if needed).
-    const netTop = COURT.netHeight + BALL.radius;
-    for (let i = 0; i < 8 && this.heightAtNet() < netTop + 0.3; i++) this.ball.vel.y += 1.0;
 
-    // A legal serve must land in the diagonal SERVICE BOX: past the net but
-    // not beyond the service line, on the correct side. Ease the pace until
-    // the serve lands in the box (cross-court is already set by the aim).
-    const serviceBoxDepth = COURT.serviceLine - 0.3;          // inside the service line
-    const serviceBoxWidth = COURT.singlesWidth / 2 - 0.2;     // inside the singles line
-    for (let i = 0; i < 24; i++) {
-      const lp = this.landingPoint();
-      const inBox = Math.abs(lp.z) <= serviceBoxDepth && Math.abs(lp.x) <= serviceBoxWidth &&
-        Math.sign(lp.z) === dir; // landed on the receiver's side
-      if (inBox) break;
-      this.ball.vel.x *= 0.92;
-      this.ball.vel.z *= 0.92;
+    // Target a point inside the correct service box, nudged left/right by the
+    // swipe aim. Team 1's screen-right is world -x, so flip a human's nudge.
+    const aimNudge = aim != null ? (servingTeam === 1 ? -aim : aim) : 0;
+    const halfBoxW = COURT.singlesWidth / 4;
+    let targetX = boxX + aimNudge * halfBoxW * 0.8;
+    let targetZ = dir * COURT.serviceLine * 0.62;
+
+    // No longer guaranteed in: nudge the TARGET out of the box for a real fault.
+    // A human overhitting (big power) risks sailing long; the AI faults at a
+    // difficulty-scaled rate (its own rng stream so match determinism is
+    // preserved). A second serve is played safer.
+    const safe = this.serveNumber === 2 ? 0.45 : 1;
+    if (isHuman) {
+      targetZ += dir * Math.max(0, powerEff - 0.86) * COURT.serviceLine * 1.8 * safe; // overhit long
+    } else if (this.serveRng() < (1 - this.difficulty) * 0.25 * safe) {
+      if (this.serveRng() < 0.5) targetZ += dir * COURT.serviceLine * 0.6;            // long
+      else targetX += this.serveTarget.xSign * COURT.singlesWidth * 0.45;             // wide
     }
 
+    this.solveServeLanding(targetX, targetZ, dir);
+    this.awaitingServeBounce = true;
     this.lastHitTeam = servingTeam;
     this.lastShot = action;
     this.rallyLength = 0;
     this.serveAnnounced = false;
     this.state = 'rally';
-    this.emit('serve', { team: servingTeam, player: server.index });
+    this.emit('serve', { team: servingTeam, player: server.index, serveNumber: this.serveNumber });
     this.emit('hit', { player: server.index, slot: server.controlledBySlot, action, power: 0.85, pos: { ...this.ball.pos } });
   }
 
@@ -320,26 +331,38 @@ export class GameDirector {
         this.ball.pos = { x: xAtNet, y: Math.max(BALL.radius, yAtNet), z: 0 };
         this.ball.vel = { x: 0, y: -1, z: 0 };        // dead — drops at the net
         this.emit('net', { pos: { ...this.ball.pos } });
+        // A serve into the net is a fault, not an instant point.
+        if (this.awaitingServeBounce) return this.faultServe('net');
         return this.endPoint(1 - this.lastHitTeam, 'net');
       }
     }
     if (ev === 'bounce') {
       const speed = Math.hypot(this.ball.vel.x, this.ball.vel.z);
       this.emit('bounce', { pos: { ...this.ball.pos }, speed, surface: this.surfaceName });
-      const inCourt = Math.abs(this.ball.pos.x) <= COURT.width / 2 &&
-                      Math.abs(this.ball.pos.z) <= COURT.length / 2;
-      if (this.ball.bounces === 1 && !inCourt) {
-        // Out: the team that hit it loses the point.
-        return this.endPoint(1 - this.lastHitTeam, 'out');
-      }
-      if (this.ball.bounces >= 2) {
-        // Double bounce on side X → X failed to return.
-        const side = this.ball.pos.z > 0 ? 0 : 1;
-        return this.endPoint(1 - side, 'double_bounce');
+      // A struck serve's FIRST bounce must land in the diagonal service box.
+      if (this.awaitingServeBounce) {
+        this.awaitingServeBounce = false;
+        if (!this.serveLandedInBox(this.ball.pos.x, this.ball.pos.z)) {
+          return this.faultServe('out');
+        }
+        // Legal serve — play on (the receiver returns it like any other ball).
+      } else {
+        const inCourt = Math.abs(this.ball.pos.x) <= COURT.width / 2 &&
+                        Math.abs(this.ball.pos.z) <= COURT.length / 2;
+        if (this.ball.bounces === 1 && !inCourt) {
+          // Out: the team that hit it loses the point.
+          return this.endPoint(1 - this.lastHitTeam, 'out');
+        }
+        if (this.ball.bounces >= 2) {
+          // Double bounce on side X → X failed to return.
+          const side = this.ball.pos.z > 0 ? 0 : 1;
+          return this.endPoint(1 - side, 'double_bounce');
+        }
       }
     }
     // Escaped past the back wall without bouncing in (e.g. long lob) — out.
     if (Math.abs(this.ball.pos.z) > COURT.length / 2 + 6 && this.ball.bounces === 0) {
+      if (this.awaitingServeBounce) return this.faultServe('out');
       return this.endPoint(1 - this.lastHitTeam, 'out');
     }
     this.tryHits();
@@ -496,7 +519,52 @@ export class GameDirector {
     });
   }
 
+  // Tune the current serve's ARC (vy) and WIDTH (vx) so its first bounce lands
+  // at (tX, tZ) — leaving vz (the trait-driven pace) untouched. A damped
+  // fixed-point iteration on the real flight sim: more vy ⇒ the ball carries
+  // deeper, more vx ⇒ it lands wider. Then ensure it clears the net.
+  solveServeLanding(tX, tZ, dir) {
+    for (let i = 0; i < 28; i++) {
+      const lp = this.landingPoint();
+      this.ball.vel.y += (tZ - lp.z) * dir * 0.35; // deeper target needs a higher arc
+      this.ball.vel.x += (tX - lp.x) * 0.5;
+    }
+    const netTop = COURT.netHeight + BALL.radius;
+    for (let i = 0; i < 6 && this.heightAtNet() < netTop + 0.18; i++) this.ball.vel.y += 0.8;
+  }
+
+  // Did a struck serve land in the diagonally-correct service box? (Past the
+  // net on the receiver's side, inside the service line and the singles line,
+  // in the correct deuce/ad half.)
+  serveLandedInBox(x, z) {
+    const t = this.serveTarget;
+    if (!t) return true;
+    return Math.sign(z) === t.dir && Math.abs(z) <= COURT.serviceLine &&
+           Math.sign(x) === t.xSign && Math.abs(x) <= COURT.singlesWidth / 2;
+  }
+
+  // A serve that missed the box. First fault → a second serve; second fault →
+  // DOUBLE FAULT, the point to the receiver.
+  faultServe(reason) {
+    const servingTeam = this.lastHitTeam;
+    this.awaitingServeBounce = false;
+    this.ball = null;
+    this.emit('fault', { team: servingTeam, serveNumber: this.serveNumber, reason });
+    if (this.serveNumber === 1) {
+      this.serveNumber = 2;
+      this.state = 'serve_pending';
+      this.serveTimer = SERVE_DELAY;
+      this.serveAnnounced = false;   // re-prompt the human for the second serve
+      this.positionForServe();
+    } else {
+      this.emit('double_fault', { team: servingTeam });
+      this.endPoint(1 - servingTeam, 'double_fault');
+    }
+  }
+
   endPoint(winningTeam, reason) {
+    this.serveNumber = 1;            // next point starts on a first serve
+    this.awaitingServeBounce = false;
     const events = this.score.pointWon(winningTeam);
     this.emit('point', {
       team: winningTeam, reason,
@@ -527,6 +595,7 @@ export class GameDirector {
     return structuredClone({
       mode: this.mode, surfaceName: this.surfaceName,
       state: this.state, serveTimer: this.serveTimer,
+      serveNumber: this.serveNumber, awaitingServeBounce: this.awaitingServeBounce, serveTarget: this.serveTarget,
       lastHitTeam: this.lastHitTeam, lastShot: this.lastShot, rallyLength: this.rallyLength,
       score: this.score.snapshot(),
       scoreInternal: {
@@ -544,6 +613,9 @@ export class GameDirector {
   restore(snap) {
     this.state = snap.state;
     this.serveTimer = snap.serveTimer;
+    this.serveNumber = snap.serveNumber ?? 1;
+    this.awaitingServeBounce = snap.awaitingServeBounce ?? false;
+    this.serveTarget = snap.serveTarget ?? null;
     this.lastHitTeam = snap.lastHitTeam;
     this.lastShot = snap.lastShot;
     this.rallyLength = snap.rallyLength;

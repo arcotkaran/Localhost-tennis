@@ -847,10 +847,18 @@ function handleSessionEvents(events) {
       case 'serve_ready':
         // Cue the serving human: on-TV prompt, phone prompt, + a gentle buzz.
         if (e.slot !== null && e.slot !== undefined) {
-          banner(`${teamNames[e.team]} to serve — swipe to hit`, 1400);
+          banner(e.serveNumber === 2 ? `${teamNames[e.team]} — second serve` : `${teamNames[e.team]} to serve — swipe to hit`, 1400);
           sendHapticTo(e.slot, HAPTIC_PATTERNS.standardHit);
           if (ws?.readyState === 1) ws.send(encode(MSG.SERVE_CUE, { slot: e.slot, on: true }));
         }
+        break;
+      case 'fault':
+        // First fault → a quick "Fault" flash (a second serve follows). A
+        // second fault also fires 'fault', but the double_fault banner covers it.
+        if (e.serveNumber === 1) banner('FAULT — second serve', 1100);
+        break;
+      case 'double_fault':
+        banner(`DOUBLE FAULT — ${teamNames[1 - e.team]} wins it`, 1900);
         break;
       case 'serve': {
         // Clear any "your serve" prompt on the server's phone.
