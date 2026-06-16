@@ -35,6 +35,8 @@
   #userpause.show { display: flex; }
   #userpause > div:first-child { font-size: 60px; font-weight: 800; letter-spacing: 4px; color: #c8f04a; }
   #userpause .sub { font-size: 18px; color: #9fd8a8; }
+  #end-match-btn { margin-top: 22px; font-size: 17px; padding: 11px 34px; border-radius: 10px; border: 1px solid #f0824a; background: rgba(60,18,10,.85); color: #ffb999; font-weight: 700; cursor: pointer; letter-spacing: 1px; }
+  #end-match-btn:hover { background: #f0824a; color: #2a0c06; }
   #divider { position: absolute; display: none; background: linear-gradient(90deg, transparent, #c8f04a55, transparent); z-index: 4; }
 
   /* ---- menu ---- */
@@ -149,7 +151,7 @@
 <button id="pause-btn" title="Pause (P / Esc)">⏸</button>
 <div id="banner"></div>
 <div id="pause">Game paused —<br>waiting for a player to reconnect…</div>
-<div id="userpause"><div>⏸ PAUSED</div><div class="sub">Press P, Esc, or tap to resume</div></div>
+<div id="userpause"><div>⏸ PAUSED</div><div class="sub">Press P, Esc, or tap to resume</div><button id="end-match-btn">⏹ END MATCH → MENU</button></div>
 <div id="divider"></div>
 <div id="vignette"></div>
 
@@ -610,7 +612,19 @@ function toggleUserPause() {
 }
 addEventListener('keydown', e => {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { e.preventDefault(); toggleUserPause(); }
+  else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); endGameToMenu(); }
 });
+// End the current match (TV key Q, the pause-overlay button, or a phone's
+// END_MATCH): stop the director, tell the server we're back in the lobby, and
+// return to the menu. Drains the menu event immediately so it works even while
+// user-paused (when the sim loop isn't draining).
+function endGameToMenu() {
+  if (session.state === 'menu') return;
+  matchLive = false;
+  if (ws?.readyState === 1) ws.send(encode(MSG.MATCH_PHASE, { phase: 'lobby' }));
+  session.quitToMenu();
+  handleSessionEvents(session.drainEvents());
+}
 function sendHapticTo(slot, pattern) {
   if (ws?.readyState === 1) ws.send(encode(MSG.HAPTIC, { slot, pattern }));
 }
@@ -667,6 +681,8 @@ async function initNetwork() {
         case MSG.LAUNCH: // a phone pressed Start Game — honored only at the menu
           if (session.state === 'menu') launchFromConfig(sanitizeLaunchConfig(msg.config));
           break;
+        case MSG.END_MATCH: endGameToMenu(); break; // a phone tapped End Match
+
         case MSG.INPUT:
           if (!paused && !userPaused) session.handleInput(msg.slot, { move: msg.move, action: msg.action, aim: msg.aim, power: msg.power, sens: msg.sens });
           break;
@@ -821,6 +837,7 @@ function onMatchCreated(title) {
 
 $('pause-btn').addEventListener('click', toggleUserPause);
 $('userpause').addEventListener('click', toggleUserPause);
+$('end-match-btn').addEventListener('click', e => { e.stopPropagation(); endGameToMenu(); });
 
 function handleSessionEvents(events) {
   for (const e of events) {

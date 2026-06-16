@@ -10,6 +10,7 @@ export const MSG = {
   MATCH_PHASE: 'match_phase',   // { phase: 'playing'|'lobby', snapshot? } — host → server
   LAUNCH: 'launch',             // phone → server → host: { config:{mode,surface,format,difficulty} }
   SET_NAME: 'set_name',         // phone → server: { name } — change my display name; server re-broadcasts PLAYER_JOINED
+  END_MATCH: 'end_match',        // phone → server → host: quit the current match back to the menu
 
   // server -> client
   JOINED: 'joined',             // { slot, roomCode, resumed, snapshot? }

@@ -76,17 +76,18 @@ function connect(code) {
       case MSG.HAPTIC: haptics.trigger(msg.pattern); break;
       case MSG.SERVE_CUE: $('serve-cue').classList.toggle('show', !!msg.on); break;
       case MSG.GAME_PAUSED:
-        $('pause-overlay').textContent = 'Game paused — waiting for a player to reconnect…';
+        $('pause-text').textContent = 'Game paused — waiting for a player to reconnect…';
         $('pause-overlay').style.display = 'flex';
         break;
       case MSG.GAME_RESUMED: $('pause-overlay').style.display = 'none'; break;
       case MSG.PAUSE_STATE:
-        $('pause-overlay').textContent = '⏸ Paused — tap pause on any phone or the TV to resume';
+        $('pause-text').textContent = '⏸ Paused — tap pause on any phone or the TV to resume';
         $('pause-overlay').style.display = msg.paused ? 'flex' : 'none';
         break;
       case MSG.LOBBY_STATE:
         // TV at the menu → show the Start Game panel; in a match → hide it.
         showStartPanel(!!msg.atMenu);
+        if (msg.atMenu) $('pause-overlay').style.display = 'none'; // back at menu = not paused
         break;
     }
   };
@@ -264,6 +265,9 @@ $('help-close').addEventListener('click', () => { $('help-overlay').style.displa
 
 // ---- pause (any phone can pause; the TV decides and echoes the state) ----
 $('pause-btn').addEventListener('click', () => send(encode(MSG.PAUSE_REQUEST, {})));
+
+// ---- end match (from the pause overlay): ask the TV to quit to the menu ----
+$('end-match-btn').addEventListener('click', () => send(encode(MSG.END_MATCH, {})));
 
 // ---- launch from phone: choose settings + start the match on the TV ----
 const launchCfg = { mode: 'single', surface: 'hard', format: 'short', difficulty: 0.72 };

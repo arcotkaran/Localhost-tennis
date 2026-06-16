@@ -22,7 +22,8 @@
     "test:phase14": "node --test tests/phase14.controls.test.js",
     "test:phase15": "node --test tests/phase15.realmatch.test.js",
     "test:phase16": "node --test tests/phase16.launch.test.js",
-    "test:phase17": "node --test tests/phase17.names.test.js"
+    "test:phase17": "node --test tests/phase17.names.test.js",
+    "test:phase18": "node --test tests/phase18.endgame.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

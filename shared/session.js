@@ -136,6 +136,22 @@ export class SessionController {
     }
   }
 
+  // Abort whatever is on screen (live match, entry cinematic, bracket, or
+  // trophy) and return to the menu. Drives the TV/phone "End Match" control.
+  // The renderer sends MSG.MATCH_PHASE {phase:'lobby'} alongside this so the
+  // server resets its seat/pause bookkeeping too.
+  quitToMenu() {
+    if (this.state === 'menu') return;
+    this.director = null;
+    this.cup = null;
+    this.cupConfig = null;
+    this.activeMatch = null;
+    this.sequence = null;
+    this.sequenceT = 0;
+    this.state = 'menu';
+    this.emit('menu');
+  }
+
   finishMatch(winningTeam) {
     const actors = this.director.players.map(p => ({ id: `p${p.index}`, team: p.team }));
     if (this.mode === 'tournament') {

@@ -188,6 +188,13 @@ export class TennisServer extends EventEmitter {
         if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.LAUNCH, { config: msg.config ?? {} }));
         return;
       }
+      case MSG.END_MATCH: {
+        // A phone tapped "End Match" — forward to the TV, which stops the
+        // director and returns to the menu (and then reports MATCH_PHASE lobby).
+        if (ws === this.hostWs) return;
+        if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.END_MATCH, {}));
+        return;
+      }
       case MSG.LOBBY_STATE: {
         // TV tells phones whether it's at the menu (show the Start Game panel)
         // or in a match (show the gamepad). Cache it so a phone that joins later

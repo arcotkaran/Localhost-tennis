@@ -49,7 +49,9 @@
   #serve-cue { position: absolute; left: 50%; top: 14%; transform: translateX(-50%); background: #c8f04a; color: #11300f; font-weight: 800; font-size: 17px; padding: 8px 22px; border-radius: 999px; opacity: 0; transition: opacity .25s; z-index: 12; }
   #serve-cue.show { opacity: 1; }
 
-  #pause-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.75); font-size: 24px; z-index: 20; text-align: center; }
+  #pause-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: rgba(0,0,0,.78); font-size: 22px; z-index: 20; text-align: center; padding: 20px; }
+  #pause-overlay.show { display: flex; }
+  #end-match-btn { font-size: 17px; padding: 11px 30px; border-radius: 10px; border: 1px solid #f0824a; background: rgba(60,18,10,.9); color: #ffb999; font-weight: 700; letter-spacing: 1px; }
 
   /* ---- Start Game panel (shown while the TV is at the menu) ---- */
   #startpanel { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: linear-gradient(160deg, #0c2a16, #07180c); z-index: 16; padding: 14px; overflow-y: auto; }
@@ -130,7 +132,10 @@
     <div class="sp-hint">Starts the match on the TV — no need to touch the laptop. Empty seats are AI.</div>
   </div>
 
-  <div id="pause-overlay">Game paused —<br>waiting for a player to reconnect…</div>
+  <div id="pause-overlay">
+    <div id="pause-text">Game paused —<br>waiting for a player to reconnect…</div>
+    <button id="end-match-btn">⏹ End Match</button>
+  </div>
 
   <button id="pause-btn" aria-label="Pause">⏸</button>
   <button id="help-btn" aria-label="How to play">?</button>
