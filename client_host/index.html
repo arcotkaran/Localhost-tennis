@@ -239,7 +239,7 @@ renderer.setScissorTest(true);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.2;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
@@ -260,19 +260,43 @@ const scene = new THREE.Scene();
 }
 scene.fog = new THREE.Fog(0x07131f, 55, 130);
 
-scene.add(new THREE.HemisphereLight(0xbcd8ff, 0x0a2a14, 0.55));
-const key = new THREE.DirectionalLight(0xfff2da, 2.1);
+scene.add(new THREE.HemisphereLight(0xbcd8ff, 0x0a2a14, 0.5));
+const key = new THREE.DirectionalLight(0xfff2da, 2.2);
 key.position.set(14, 26, 10);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = -20; key.shadow.camera.right = 20;
-key.shadow.camera.top = 25; key.shadow.camera.bottom = -25;
+key.shadow.camera.left = -18; key.shadow.camera.right = 18;
+key.shadow.camera.top = 22; key.shadow.camera.bottom = -22;
 key.shadow.camera.far = 70;
-key.shadow.bias = -0.0004;
+key.shadow.bias = -0.00035;
+key.shadow.normalBias = 0.02;     // kill shadow acne on the curved player capsules
+key.shadow.radius = 2.4;          // softer penumbra
 scene.add(key);
-const fill = new THREE.DirectionalLight(0xa8c4ff, 0.5);
+const fill = new THREE.DirectionalLight(0xa8c4ff, 0.45);
 fill.position.set(-12, 18, -8);
 scene.add(fill);
+// Cool rim/back light to separate the players from the dark bowl.
+const rim = new THREE.DirectionalLight(0x9fd0ff, 0.7);
+rim.position.set(0, 10, -26);
+scene.add(rim);
+
+// Image-based lighting: a generated night-stadium environment gives every
+// MeshStandardMaterial subtle, physically-plausible reflections + floodlight
+// specular highlights (built once — negligible per-frame cost).
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, '#1c3a58'); grad.addColorStop(0.5, '#13283c'); grad.addColorStop(1, '#0a160d');
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 128);
+  g.fillStyle = 'rgba(255,247,220,0.95)'; // floodlight banks near the roofline
+  for (const x of [32, 96, 160, 224]) { g.beginPath(); g.ellipse(x, 26, 16, 7, 0, 0, Math.PI * 2); g.fill(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = pmrem.fromEquirectangular(tex).texture;
+  tex.dispose(); pmrem.dispose();
+}
 
 // ---------- stadium environment ----------
 const surfaceColors = { grass: '#2e7d32', clay: '#b35430', hard: '#2962a8' };
@@ -298,7 +322,7 @@ function courtTexture(name) {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
-const courtMat = new THREE.MeshStandardMaterial({ map: courtTexture('hard'), roughness: 0.92, metalness: 0 });
+const courtMat = new THREE.MeshStandardMaterial({ map: courtTexture('hard'), roughness: 0.86, metalness: 0.02, envMapIntensity: 0.35 });
 const courtMesh = new THREE.Mesh(new THREE.BoxGeometry(COURT.width, 0.1, COURT.length), courtMat);
 courtMesh.receiveShadow = true;
 scene.add(courtMesh);
@@ -320,6 +344,8 @@ line(0.06, COURT.length, -COURT.singlesWidth / 2, 0); line(0.06, COURT.length, C
 line(COURT.width, 0.06, 0, -COURT.length / 2); line(COURT.width, 0.06, 0, COURT.length / 2);
 line(COURT.singlesWidth, 0.06, 0, -COURT.serviceLine); line(COURT.singlesWidth, 0.06, 0, COURT.serviceLine);
 line(0.06, COURT.serviceLine * 2, 0, 0);
+// Center service marks on each baseline.
+line(0.06, 0.5, 0, COURT.length / 2 - 0.25); line(0.06, 0.5, 0, -(COURT.length / 2 - 0.25));
 
 // Net with a woven texture and posts.
 {
@@ -448,17 +474,32 @@ const crowdSeats = [];
 scene.add(crowdBodies, crowdHeads);
 
 // Ball, trail, shadow, bounce dust.
-const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 14, 14),
-  new THREE.MeshStandardMaterial({ color: 0xdfff4f, emissive: 0x9bb821, emissiveIntensity: 0.55, roughness: 0.7 }));
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 20, 16),
+  new THREE.MeshStandardMaterial({ color: 0xdfff4f, emissive: 0x9bb821, emissiveIntensity: 0.5, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.6 }));
 ballMesh.castShadow = true;
+// Curved seam so the ball's spin reads as it tumbles through the air.
+{
+  const seam = new THREE.Mesh(new THREE.TorusGeometry(0.081, 0.006, 6, 24),
+    new THREE.MeshStandardMaterial({ color: 0xf4ffd0, roughness: 0.6 }));
+  seam.rotation.x = Math.PI / 2;
+  ballMesh.add(seam);
+}
 scene.add(ballMesh);
-const TRAIL_N = 26;
+const TRAIL_N = 30;
 const trailPositions = new Float32Array(TRAIL_N * 3);
+const trailColors = new Float32Array(TRAIL_N * 3);
+for (let i = 0; i < TRAIL_N; i++) {
+  const a = (1 - i / TRAIL_N) ** 1.6;            // bright at the ball (head) → fades to nothing
+  trailColors[i * 3] = 0.87 * a; trailColors[i * 3 + 1] = 1.0 * a; trailColors[i * 3 + 2] = 0.31 * a;
+}
 const trailGeom = new THREE.BufferGeometry();
 trailGeom.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+trailGeom.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
 const trail = new THREE.Line(trailGeom,
-  new THREE.LineBasicMaterial({ color: 0xdfff4f, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending }));
+  new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
 scene.add(trail);
+let ballSquash = 0, hadBall = false; // bounce squash & trail-reset bookkeeping
+let camShake = 0;                    // decaying camera-shake impulse (big hits / big points)
 const shadowGeo = new THREE.CircleGeometry(0.5, 18);
 const shadowMatBase = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false });
 const ballShadow = new THREE.Mesh(shadowGeo, shadowMatBase);
@@ -467,13 +508,45 @@ ballShadow.position.y = 0.015;
 scene.add(ballShadow);
 const dustPuffs = [];
 function spawnDust(x, z) {
-  const m = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.16, 14),
-    new THREE.MeshBasicMaterial({ color: surface === 'clay' ? 0xd8957a : 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }));
-  m.rotation.x = -Math.PI / 2;
-  m.position.set(x, 0.03, z);
-  scene.add(m);
-  dustPuffs.push({ m, t: 0 });
+  // A skidding ring + a little kicked-up puff (clay-tinted on clay).
+  const tint = surface === 'clay' ? 0xd8957a : 0xeef3ff;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.16, 16),
+    new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.55, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.03, z);
+  scene.add(ring);
+  dustPuffs.push({ m: ring, t: 0, kind: 'ring' });
+  const puff = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6),
+    new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.4, depthWrite: false }));
+  puff.position.set(x, 0.08, z);
+  scene.add(puff);
+  dustPuffs.push({ m: puff, t: 0, kind: 'puff' });
 }
+
+// Bright additive impact flash at racket contact (bigger on a smash).
+const sparks = [];
+function spawnHitSpark(x, y, z, big) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(big ? 0.2 : 0.12, 8, 8),
+    new THREE.MeshBasicMaterial({ color: big ? 0xfff2b0 : 0xeaff9c, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  m.position.set(x, y, z);
+  scene.add(m);
+  sparks.push({ m, t: 0, big });
+}
+
+// Soft dot texture for camera-flash sparkles in the stands.
+const dotTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 32, 32);
+  return new THREE.CanvasTexture(c);
+})();
+const camFlashes = Array.from({ length: 16 }, () => {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+  s.scale.setScalar(0.6); s.visible = false; scene.add(s);
+  return { s, life: 0 };
+});
 
 // ---------- actors ----------
 const GEO_BUILDERS = {
@@ -895,16 +968,20 @@ function handleSessionEvents(events) {
         }
         const actor = actors[e.player];
         if (actor) actor.swing = { action: e.action, t: 0 };
+        if (e.pos) spawnHitSpark(e.pos.x, e.pos.y, e.pos.z, e.action === 'smash');
+        if (e.action === 'smash') camShake = Math.min(0.5, camShake + 0.28);
         break;
       }
       case 'bounce':
         audio.ballBounce({ surface: e.surface, speed: e.speed, pos: e.pos });
+        ballSquash = Math.min(1, 0.35 + e.speed * 0.03); // faster bounce → flatter squash
         if (e.speed > 8) spawnDust(e.pos.x, e.pos.z);
         break;
       case 'point': {
         crowd.pointWon(e);
         updateScoreboard(e);
         const big = e.winningShot === 'smash' || e.rallyLength >= 8 || e.isPressurePoint;
+        if (big) camShake = Math.min(0.5, camShake + 0.16);
         emotions?.pointWon(e.team, { big, reason: e.reason });
         if (e.isPressurePoint) emotions?.pressurePoint();
         emotions?.scoreboardPressure(e.setsWon);
@@ -1000,9 +1077,16 @@ function animateActors(dt) {
   for (let i = dustPuffs.length - 1; i >= 0; i--) {
     const p = dustPuffs[i];
     p.t += dt;
-    p.m.scale.setScalar(1 + p.t * 5);
-    p.m.material.opacity = Math.max(0, 0.5 - p.t * 1.4);
-    if (p.t > 0.4) { scene.remove(p.m); dustPuffs.splice(i, 1); }
+    if (p.kind === 'puff') { p.m.scale.setScalar(1 + p.t * 7); p.m.position.y = 0.08 + p.t * 0.5; p.m.material.opacity = Math.max(0, 0.4 - p.t * 1.1); }
+    else { p.m.scale.setScalar(1 + p.t * 5); p.m.material.opacity = Math.max(0, 0.55 - p.t * 1.5); }
+    if (p.t > 0.5) { scene.remove(p.m); dustPuffs.splice(i, 1); }
+  }
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i]; s.t += dt;
+    const k = s.t / 0.18;
+    s.m.scale.setScalar(1 + k * (s.big ? 3.5 : 2.2));
+    s.m.material.opacity = Math.max(0, 0.95 - k * 0.95);
+    if (s.t > 0.18) { scene.remove(s.m); sparks.splice(i, 1); }
   }
 }
 
@@ -1041,24 +1125,39 @@ function frame(now) {
 
   if (dir?.ball) {
     ballMesh.visible = trail.visible = ballShadow.visible = true;
-    ballMesh.position.set(dir.ball.pos.x, dir.ball.pos.y, dir.ball.pos.z);
-    ballShadow.position.x = dir.ball.pos.x;
-    ballShadow.position.z = dir.ball.pos.z;
-    ballShadow.scale.setScalar(Math.max(0.12, 0.3 - dir.ball.pos.y * 0.02));
+    const bp = dir.ball.pos;
+    ballMesh.position.set(bp.x, bp.y, bp.z);
+    // Spin: tumble the ball (and its seam) so topspin/slice read visually.
+    const spin = dir.ball.spin?.x ?? 0;
+    ballMesh.rotation.x += spin * (realDt || 0.016) * 0.012;
+    ballMesh.rotation.y += (dir.ball.vel?.x ?? 0) * (realDt || 0.016) * 0.4;
+    // Bounce squash decays back to a round ball.
+    ballSquash = Math.max(0, ballSquash - (realDt || 0.016) * 7);
+    ballMesh.scale.set(1 + ballSquash * 0.45, 1 - ballSquash * 0.5, 1 + ballSquash * 0.45);
+    ballShadow.position.x = bp.x;
+    ballShadow.position.z = bp.z;
+    ballShadow.scale.setScalar(Math.max(0.12, 0.3 - bp.y * 0.02));
+    ballShadow.material.opacity = Math.max(0.08, 0.34 - bp.y * 0.03); // softer/fainter when high
+    if (!hadBall) { for (let i = 0; i < TRAIL_N; i++) { trailPositions[i * 3] = bp.x; trailPositions[i * 3 + 1] = bp.y; trailPositions[i * 3 + 2] = bp.z; } }
     trailPositions.copyWithin(3, 0, (TRAIL_N - 1) * 3);
-    trailPositions[0] = dir.ball.pos.x; trailPositions[1] = dir.ball.pos.y; trailPositions[2] = dir.ball.pos.z;
+    trailPositions[0] = bp.x; trailPositions[1] = bp.y; trailPositions[2] = bp.z;
     trailGeom.attributes.position.needsUpdate = true;
+    hadBall = true;
   } else {
     ballMesh.visible = trail.visible = ballShadow.visible = false;
+    hadBall = false;
   }
 
-  // Crowd excitement: brighten + bob.
+  // Crowd life: a gentle constant sway that swells into hops when excited.
   const excitement = crowd.intensity;
-  if (excitement > 0.45) {
+  {
     const tmp = new THREE.Object3D();
+    const amp = 0.045 + excitement * 0.32;
+    const hot = excitement > 0.4;
     for (let i = 0; i < CROWD_N; i += 2) { // animate alternate spectators
       const s = crowdSeats[i];
-      const hop = Math.max(0, Math.sin(now / 95 + s.phase)) * 0.3 * excitement;
+      const hop = (hot ? Math.max(0, Math.sin(now / 95 + s.phase))
+                       : 0.5 + 0.5 * Math.sin(now / 650 + s.phase)) * amp;
       tmp.position.set(s.x, s.y + hop, s.z);
       tmp.updateMatrix();
       crowdBodies.setMatrixAt(i, tmp.matrix);
@@ -1069,14 +1168,31 @@ function frame(now) {
     crowdBodies.instanceMatrix.needsUpdate = true;
     crowdHeads.instanceMatrix.needsUpdate = true;
   }
+  // Sporadic camera-flash sparkles in the stands — more frequent when excited.
+  for (const f of camFlashes) {
+    if (f.life > 0) {
+      f.life -= realDt || 0.016;
+      f.s.material.opacity = Math.max(0, f.life / 0.18) * 0.9;
+      if (f.life <= 0) f.s.visible = false;
+    } else if (Math.random() < 0.005 + excitement * 0.05) {
+      const seat = crowdSeats[(Math.random() * CROWD_N) | 0];
+      f.s.position.set(seat.x, seat.y + 0.45, seat.z);
+      f.s.visible = true; f.life = 0.18;
+    }
+  }
   playDescriptors();
 
+  camShake = Math.max(0, camShake - (realDt || 0.016) * 2.6); // decay the shake impulse
   const inMatch = (dir && ['entry', 'match'].includes(session.state)) || session.state === 'trophy';
   if (viewports.length && inMatch) {
     for (const v of viewports) {
+      const ox = camShake ? Math.sin(now * 0.11 + v.team) * 0.5 * camShake : 0;
+      const oy = camShake ? Math.cos(now * 0.17 + v.team) * 0.4 * camShake : 0;
+      v.cam.position.x += ox; v.cam.position.y += oy;
       renderer.setViewport(v.x, innerHeight - v.y - v.h, v.w, v.h);
       renderer.setScissor(v.x, innerHeight - v.y - v.h, v.w, v.h);
       renderer.render(scene, v.cam);
+      v.cam.position.x -= ox; v.cam.position.y -= oy;
     }
   } else {
     renderer.setViewport(0, 0, innerWidth, innerHeight);
