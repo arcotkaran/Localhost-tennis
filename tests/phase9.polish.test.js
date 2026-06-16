@@ -81,6 +81,57 @@ test('every roster character gets a valid, team-colored, accented model', () => 
   assert.ok(guest.parts.some(p => p.name === 'torso'));
 });
 
+test('each roster character yields a DISTINCT, recognizable model', () => {
+  const partOf = (spec, name) => spec.parts.find(p => p.name === name);
+  const fingerprints = new Set();
+  for (const character of ROSTER) {
+    const spec = playerModelSpec(character, 0);
+    // A distinct visual fingerprint across the whole roster (same team!).
+    fingerprints.add(JSON.stringify({ parts: spec.parts, scale: spec.scale }));
+    assert.ok(Number.isFinite(spec.scale) && spec.scale > 0.8 && spec.scale < 1.3,
+      `${character.id}: sane height scale`);
+    // Torso stays team-colored (side identification) even with per-character looks.
+    assert.equal(partOf(spec, 'torso').color, 0x4ad8f0, `${character.id}: torso is the team kit`);
+  }
+  assert.equal(fingerprints.size, ROSTER.length, 'every roster character looks different');
+
+  const spec = id => playerModelSpec(ROSTER.find(p => p.id === id), 0);
+
+  // Signature gear — the things that make each player recognizable.
+  const nadal = spec('nadal');
+  assert.equal(partOf(nadal, 'headband').color, 0xff6a00, 'Nadal: orange headband');
+  assert.ok(!partOf(nadal, 'sleeveL'), 'Nadal is sleeveless');
+  assert.equal(partOf(nadal, 'shoeL').color, 0xff4400, 'Nadal: bright shoes');
+
+  const federer = spec('federer');
+  assert.ok(partOf(federer, 'headband'), 'Federer wears a headband');
+  assert.ok(partOf(federer, 'logo'), 'Federer has the RF chest mark');
+
+  const kyrgios = spec('kyrgios');
+  assert.ok(partOf(kyrgios, 'cap'), 'Kyrgios wears a cap');
+  assert.equal(partOf(kyrgios, 'shoeL').color, 0xff2bd6, 'Kyrgios: loud pink shoes');
+  assert.ok(!partOf(kyrgios, 'hair'), 'cap hides the hair part');
+
+  const murray = spec('murray');
+  assert.equal(partOf(murray, 'cap').color, 0xf0f0f0, 'Murray: white cap');
+
+  const djokovic = spec('djokovic');
+  assert.ok(partOf(djokovic, 'headband'), 'Djokovic wears a headband');
+
+  // Sleeved roster characters carry kit-colored sleeves over the shoulders.
+  for (const id of ['federer', 'djokovic', 'kyrgios', 'murray']) {
+    assert.ok(partOf(spec(id), 'sleeveR'), `${id} has a sleeve`);
+  }
+
+  // Distinct skin tones (the head color) across the roster.
+  const skins = new Set(ROSTER.map(c => partOf(playerModelSpec(c, 0), 'head').color));
+  assert.equal(skins.size, ROSTER.length, 'every character has a distinct skin tone');
+
+  // Builds vary: Nadal is stockier than Federer (wider torso radius).
+  assert.ok(partOf(nadal, 'torso').size[0] > partOf(federer, 'torso').size[0],
+    'Nadal has a heavier build than Federer');
+});
+
 // ---------- animation curves ----------
 
 test('swing poses: rest at endpoints, peak mid-swing, smash goes overhead', () => {

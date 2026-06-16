@@ -521,6 +521,7 @@ function buildActors(players, characters) {
       if (['eyeL', 'eyeR', 'browL', 'browR', 'mouth'].includes(part.name)) faceRefs[part.name] = mesh;
     }
     group.rotation.y = p.team === 0 ? Math.PI : 0;
+    group.scale.setScalar(spec.scale ?? 1); // per-character height (build); poses only touch position/rotation
     scene.add(group);
     const shadow = new THREE.Mesh(shadowGeo, shadowMatBase.clone());
     shadow.rotation.x = -Math.PI / 2;
