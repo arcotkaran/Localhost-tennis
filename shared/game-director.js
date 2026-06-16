@@ -39,6 +39,9 @@ export function slotMapping(mode) {
 
 // A human server who walks away must not soft-lock the match.
 export const SERVE_FALLBACK = 12.0; // seconds before an idle human auto-serves
+// Two-step serve: a tap tosses the ball up, a swipe strikes it.
+export const TOSS_STRIKE_DELAY = 0.45; // AI/fallback strikes this long after the toss (near the apex)
+export const HUMAN_TOSS_WINDOW = 1.4;  // a human who tosses but never swipes is auto-struck (anti-softlock)
 
 export class GameDirector {
   constructor({ mode = '1v1', surface = 'hard', bestOf = 3, characters = [], seed = 42, difficulty = 0.7 } = {}) {
@@ -76,9 +79,11 @@ export class GameDirector {
     }
 
     this.ball = null;
-    this.state = 'serve_pending'; // serve_pending | rally | finished
+    this.state = 'serve_pending'; // serve_pending | serve_toss | rally | finished
     this.serveTimer = SERVE_DELAY * 0.5;
     this.serveAnnounced = false;  // whether we've emitted serve_ready this point
+    this.tossAge = 0;             // seconds since the ball was tossed (serve_toss)
+    this.serveAuto = false;       // the toss was auto (AI/fallback) → auto-strike at the apex
     this.serveNumber = 1;         // 1 = first serve, 2 = second serve (after a fault)
     this.awaitingServeBounce = false; // a struck serve whose first bounce must land in the box
     this.serveTarget = null;      // { dir, xSign } — the diagonal box the serve must hit
@@ -153,21 +158,37 @@ export class GameDirector {
       const server = this.currentServer();
       const human = server.controlledBySlot !== null;
       if (human) {
-        // Announce once that it's their serve, then wait for a button press.
+        // Announce once that it's their serve, then wait for a TAP to toss.
         if (!this.serveAnnounced) {
           this.emit('serve_ready', { team: server.team, player: server.index, slot: server.controlledBySlot, serveNumber: this.serveNumber });
           this.serveAnnounced = true;
         }
         if (server.armed) {
-          const { action, aim, power } = server.armed;
           server.armed = null;
-          this.serve(action, aim, power);
+          this.tossServe(false);     // tap → toss the ball up; the swipe will strike it
         } else if (this.serveTimer <= -SERVE_FALLBACK) {
-          this.serve('flat'); // anti-softlock if the human never serves
+          this.tossServe(true);      // anti-softlock: the engine tosses AND strikes
         }
       } else if (this.serveTimer <= 0) {
-        this.serve('flat');
+        this.tossServe(true);        // AI auto-tosses (then auto-strikes at the apex)
       }
+    } else if (this.state === 'serve_toss') {
+      this.tossAge += dt;
+      const server = this.currentServer();
+      const awaitingHuman = server.controlledBySlot !== null && !this.serveAuto;
+      if (awaitingHuman) {
+        if (server.armed) {
+          const { action, aim, power } = server.armed;
+          server.armed = null;
+          this.serve(action, aim, power); // swipe strikes the toss
+        } else if (this.tossAge >= HUMAN_TOSS_WINDOW) {
+          this.serve('flat');             // tossed but never swung — strike anyway
+        }
+      } else if (this.tossAge >= TOSS_STRIKE_DELAY) {
+        this.serve('flat');               // AI / fallback strikes near the apex
+      }
+      // Animate the tossed ball rising and falling until it's struck.
+      if (this.state === 'serve_toss' && this.ball) this.ball.step(dt, this.surface);
     }
     this.stepPlayers(dt);
     if (this.state === 'rally' && this.ball) this.stepBall(dt);
@@ -211,6 +232,25 @@ export class GameDirector {
     }
   }
 
+  // Step 1 of the serve: toss the ball up from the deuce/ad corner. `auto` =
+  // the engine will also strike it (AI or the idle-human fallback); otherwise
+  // we wait for the human's swipe to strike.
+  tossServe(auto) {
+    const server = this.currentServer();
+    const teamSign = server.team === 0 ? 1 : -1;
+    const side = this.serveSide();
+    const cornerX = side * teamSign * (COURT.singlesWidth / 2 - 0.6);
+    server.body.pos = { x: cornerX, z: teamSign * (COURT.length / 2 - 0.2) };
+    server.body.vel = { x: 0, z: 0 };
+    this.ball = new Ball({ pos: { x: cornerX, y: 1.5, z: server.body.pos.z }, vel: { x: 0, y: 5.5, z: 0 } });
+    this.state = 'serve_toss';
+    this.serveAuto = auto;
+    this.tossAge = 0;
+    this.serveAnnounced = false;
+    this.emit('serve_toss', { team: server.team, player: server.index, slot: server.controlledBySlot, serveNumber: this.serveNumber, auto });
+  }
+
+  // Step 2: strike the (already tossed) ball into the service box.
   serve(action = 'flat', aim = null, power = null) {
     const server = this.currentServer();
     const servingTeam = server.team;
@@ -595,6 +635,7 @@ export class GameDirector {
     return structuredClone({
       mode: this.mode, surfaceName: this.surfaceName,
       state: this.state, serveTimer: this.serveTimer,
+      tossAge: this.tossAge, serveAuto: this.serveAuto,
       serveNumber: this.serveNumber, awaitingServeBounce: this.awaitingServeBounce, serveTarget: this.serveTarget,
       lastHitTeam: this.lastHitTeam, lastShot: this.lastShot, rallyLength: this.rallyLength,
       score: this.score.snapshot(),
@@ -613,6 +654,8 @@ export class GameDirector {
   restore(snap) {
     this.state = snap.state;
     this.serveTimer = snap.serveTimer;
+    this.tossAge = snap.tossAge ?? 0;
+    this.serveAuto = snap.serveAuto ?? false;
     this.serveNumber = snap.serveNumber ?? 1;
     this.awaitingServeBounce = snap.awaitingServeBounce ?? false;
     this.serveTarget = snap.serveTarget ?? null;

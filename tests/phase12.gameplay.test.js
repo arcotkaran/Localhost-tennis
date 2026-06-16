@@ -38,16 +38,20 @@ test('human server does NOT auto-serve — it waits for a button press', () => {
   assert.equal(ready.player, 0);
 });
 
-test('human serves when they press a button, using the chosen shot', () => {
+test('human serves in two steps: a tap tosses, a swipe strikes', () => {
   const d = new GameDirector({ mode: '1v1', seed: 3 });
   d.attachSlot(0);
   step(d, SERVE_DELAY + 0.5);          // reach the waiting state
-  d.handleInput(0, { action: 'slice', move: { x: 0, y: 0 } });
+  d.handleInput(0, { action: 'flat', move: { x: 0, y: 0 } }); // TAP → toss
+  step(d, 0.05);
+  assert.equal(d.state, 'serve_toss', 'the tap tossed the ball up');
+  assert.ok(d.ball && d.ball.vel.y > 0, 'the tossed ball is rising');
+  d.handleInput(0, { action: 'slice' }); // SWIPE → strike
   const events = step(d, 0.1);
   const serve = events.find(e => e.type === 'serve');
-  assert.ok(serve, 'press triggers the serve');
+  assert.ok(serve, 'the swipe strikes the serve');
   assert.equal(d.state, 'rally');
-  assert.equal(d.lastShot, 'slice', 'serve uses the pressed shot type');
+  assert.equal(d.lastShot, 'slice', 'serve uses the struck shot type');
   assert.ok(d.ball.vel.z < 0, 'serve travels toward the opponent');
 });
 
@@ -66,19 +70,18 @@ test('idle human is rescued by the fallback so the match never soft-locks', () =
   assert.equal(d.state, 'rally');
 });
 
-test('human serve is placed by the swipe aim', () => {
-  const right = new GameDirector({ mode: '1v1', seed: 9 });
-  right.attachSlot(0);
-  step(right, SERVE_DELAY + 0.3);
-  right.handleInput(0, { action: 'flat', aim: 1 }); // swipe places it to the right
-  step(right, 0.05);
-
-  const left = new GameDirector({ mode: '1v1', seed: 9 });
-  left.attachSlot(0);
-  step(left, SERVE_DELAY + 0.3);
-  left.handleInput(0, { action: 'flat', aim: -1 });
-  step(left, 0.05);
-
+test('human serve is placed by the strike swipe aim', () => {
+  function placedServe(aim) {
+    const d = new GameDirector({ mode: '1v1', seed: 9 });
+    d.attachSlot(0);
+    step(d, SERVE_DELAY + 0.3);
+    d.handleInput(0, { action: 'flat' });           // toss
+    step(d, 0.05);
+    d.handleInput(0, { action: 'flat', aim });      // strike with placement
+    step(d, 0.05);
+    return d;
+  }
+  const right = placedServe(1), left = placedServe(-1);
   assert.ok(right.ball.vel.x > left.ball.vel.x, 'swiping right places the serve further right');
   // And the serve is taken from behind the baseline (the server is moved there).
   assert.ok(Math.abs(right.players[0].body.pos.z) >= COURT.length / 2 - 1,

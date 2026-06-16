@@ -74,7 +74,14 @@ function connect(code) {
         break;
       }
       case MSG.HAPTIC: haptics.trigger(msg.pattern); break;
-      case MSG.SERVE_CUE: $('serve-cue').classList.toggle('show', !!msg.on); break;
+      case MSG.SERVE_CUE: {
+        const cue = $('serve-cue');
+        if (msg.on) {
+          cue.textContent = msg.phase === 'strike' ? 'NOW SWIPE TO HIT! 🎾' : 'YOUR SERVE — TAP TO TOSS';
+          cue.classList.add('show');
+        } else cue.classList.remove('show');
+        break;
+      }
       case MSG.GAME_PAUSED:
         $('pause-text').textContent = 'Game paused — waiting for a player to reconnect…';
         $('pause-overlay').style.display = 'flex';

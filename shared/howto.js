@@ -38,7 +38,8 @@ export const HOW_TO_PLAY = {
       icon: '🚀',
       lines: [
         'When it is your serve, the TV and your phone show a prompt and it buzzes.',
-        'Swipe to hit the serve — angle the swipe to place it in the box.',
+        'TAP to toss the ball up, then SWIPE to strike it — like a real serve.',
+        'The strike swipe places and paces it: angle aims into the box, speed adds power. Overhitting can fault — first fault gives a second serve, two faults is a double fault.',
       ],
     },
     {
@@ -63,5 +64,6 @@ export const PHONE_CHEAT_SHEET = [
   ['Swipe ↓', 'slice drop shot'],
   ['Swipe angle', 'aims the ball left/right'],
   ['Swipe speed', 'shot power'],
+  ['Serve', 'tap to toss, then swipe to strike'],
   ['Auto', 'smash a high ball, volley at net'],
 ];

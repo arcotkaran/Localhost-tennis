@@ -95,15 +95,19 @@ export class TennisServer extends EventEmitter {
       return;
     }
     if (!this.staticRoot) { res.writeHead(404); res.end(); return; }
+    // Resolve the file from the PATHNAME only — a query/hash (e.g. the TV opened
+    // as /client_host/index.html?code=1234) must not become part of the path or
+    // readFile fails and the page 404s.
+    const pathname = req.url.split(/[?#]/)[0];
     // Redirect instead of serving the controller at '/': the page's relative
     // asset URLs (js/controller.js, ../shared/*.js) must resolve against its
     // real path or the phone gets dead HTML with no script.
-    if (req.url === '/') {
+    if (pathname === '/') {
       res.writeHead(302, { Location: '/client_mobile/index.html' });
       res.end();
       return;
     }
-    let path = normalize(req.url).replace(/^(\.\.[/\\])+/, '');
+    let path = normalize(pathname).replace(/^(\.\.[/\\])+/, '');
     try {
       const file = await readFile(join(this.staticRoot, path));
       res.writeHead(200, { 'Content-Type': MIME[extname(path)] ?? 'application/octet-stream' });
@@ -161,9 +165,9 @@ export class TennisServer extends EventEmitter {
         return;
       }
       case MSG.SERVE_CUE: {
-        // TV → the serving phone only.
+        // TV → the serving phone only ('toss' then 'strike' phase).
         if (ws !== this.hostWs) return;
-        this.sendToSlot(msg.slot, MSG.SERVE_CUE, { on: msg.on });
+        this.sendToSlot(msg.slot, MSG.SERVE_CUE, { on: msg.on, phase: msg.phase });
         return;
       }
       case MSG.PAUSE_REQUEST: {

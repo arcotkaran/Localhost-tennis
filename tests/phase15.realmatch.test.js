@@ -115,7 +115,9 @@ test('serve goes cross-court and both players start on the correct sides', () =>
   // And the struck serve travels toward the receiver's side (cross-court).
   d.attachSlot(0);
   step(d, SERVE_DELAY + 0.3);
-  d.handleInput(0, { action: 'flat', aim: 0, power: 0.8 });
+  d.handleInput(0, { action: 'flat' });               // toss
+  step(d, 0.05);
+  d.handleInput(0, { action: 'flat', aim: 0, power: 0.8 }); // strike
   step(d, 0.05);
   assert.ok(Math.sign(d.ball.vel.x) === Math.sign(receiver.body.pos.x) || Math.abs(d.ball.vel.x) < 0.5,
     'serve heads toward the diagonal box');
@@ -126,7 +128,9 @@ test('a harder serve swipe produces more pace', () => {
     const d = new GameDirector({ mode: '1v1', seed: 9 });
     d.attachSlot(0);
     step(d, SERVE_DELAY + 0.3);
-    d.handleInput(0, { action: 'flat', aim: 0, power });
+    d.handleInput(0, { action: 'flat' });             // toss
+    step(d, 0.05);
+    d.handleInput(0, { action: 'flat', aim: 0, power }); // strike
     step(d, 0.02);
     return Math.abs(d.ball.vel.z);
   }

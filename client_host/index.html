@@ -845,11 +845,18 @@ function handleSessionEvents(events) {
     switch (e.type) {
       case 'entry': onMatchCreated(e.title); break;
       case 'serve_ready':
-        // Cue the serving human: on-TV prompt, phone prompt, + a gentle buzz.
+        // Cue the serving human: TAP to toss. On-TV prompt, phone prompt, buzz.
         if (e.slot !== null && e.slot !== undefined) {
-          banner(e.serveNumber === 2 ? `${teamNames[e.team]} — second serve` : `${teamNames[e.team]} to serve — swipe to hit`, 1400);
+          banner(e.serveNumber === 2 ? `${teamNames[e.team]} — second serve (tap to toss)` : `${teamNames[e.team]} to serve — tap to toss`, 1400);
           sendHapticTo(e.slot, HAPTIC_PATTERNS.standardHit);
-          if (ws?.readyState === 1) ws.send(encode(MSG.SERVE_CUE, { slot: e.slot, on: true }));
+          if (ws?.readyState === 1) ws.send(encode(MSG.SERVE_CUE, { slot: e.slot, on: true, phase: 'toss' }));
+        }
+        break;
+      case 'serve_toss':
+        // The ball is up — cue the human to SWIPE to strike (skip for AI/fallback).
+        if (e.slot !== null && e.slot !== undefined && !e.auto) {
+          sendHapticTo(e.slot, HAPTIC_PATTERNS.standardHit);
+          if (ws?.readyState === 1) ws.send(encode(MSG.SERVE_CUE, { slot: e.slot, on: true, phase: 'strike' }));
         }
         break;
       case 'fault':
