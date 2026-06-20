@@ -260,6 +260,15 @@ export class TennisServer extends EventEmitter {
         if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.TEAM_CHOICE, { slot, team: msg.team, color: msg.color }));
         return;
       }
+      case MSG.EMOTE: {
+        // A phone sent an emote/taunt — forward to the TV (with the slot) to pop
+        // a bubble. Harmless chatter; allowed any time except from the host.
+        if (ws === this.hostWs) return;
+        const slot = this.players.get(ws._playerId)?.slot;
+        if (slot == null) return;
+        if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.EMOTE, { slot, emote: msg.emote }));
+        return;
+      }
       case MSG.LOBBY_STATE: {
         // TV tells phones whether it's at the menu (show the Start Game panel)
         // or in a match (show the gamepad). Cache it so a phone that joins later

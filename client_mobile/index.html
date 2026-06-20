@@ -72,6 +72,10 @@
   #help-btn { position: absolute; top: 8px; right: 8px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 19px; font-weight: 700; }
   #pause-btn { position: absolute; top: 8px; right: 54px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 16px; }
   #fullscreen-btn { position: absolute; top: 8px; right: 100px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 18px; }
+  #emote-btn { position: absolute; top: 8px; right: 146px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); font-size: 20px; }
+  #emote-bar { position: absolute; top: 52px; right: 8px; z-index: 16; display: none; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 60%; background: rgba(8,24,13,.92); border: 1px solid #3a7d44; border-radius: 12px; padding: 6px; }
+  #emote-bar.show { display: flex; }
+  #emote-bar button { width: 44px; height: 44px; border: none; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 24px; }
   /* flex-start + scroll so the close button is always reachable in landscape
      (centering clipped the "GOT IT" button off the bottom on short screens). */
   #help-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; background: rgba(4,16,8,.97); z-index: 30; padding: 50px 18px 24px; overflow-y: auto; }
@@ -159,6 +163,8 @@
   <button id="pause-btn" aria-label="Pause">⏸</button>
   <button id="help-btn" aria-label="How to play">?</button>
   <button id="fullscreen-btn" aria-label="Fullscreen">⛶</button>
+  <button id="emote-btn" aria-label="Emote">😀</button>
+  <div id="emote-bar"></div>
   <div id="help-overlay">
     <button id="help-x" aria-label="Close help">✕</button>
     <h2>HOW TO PLAY</h2>

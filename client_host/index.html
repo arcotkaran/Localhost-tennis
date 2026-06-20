@@ -49,6 +49,32 @@
   #sc-table td.label { text-align: center; color: #9fd8a8; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
   #sc-table tr + tr td { border-top: 1px solid rgba(255,255,255,.07); }
   #sc-table td.sc-rally { text-align: center; color: #c8f04a; font-size: 14px; padding-top: 14px; letter-spacing: 1px; }
+  /* live mini-stats line under the scoreboard during play */
+  #live-stats { display: none; margin-top: 6px; gap: 16px; align-items: center; background: rgba(8,28,14,.85); border: 1px solid rgba(200,240,74,.2); border-radius: 8px; padding: 5px 14px; font-size: 13px; letter-spacing: 1px; }
+  #live-stats.show { display: flex; }
+  #live-stats .ls-rally { color: #c8f04a; font-weight: 700; }
+  #live-stats .ls-aces { color: #9fd8a8; }
+  #live-stats .ls-tag { margin-left: auto; color: #fff; font-weight: 800; opacity: 0; transition: opacity .25s; }
+  #live-stats .ls-tag.show { opacity: 1; }
+  /* floating phone emote bubbles */
+  #emote-layer { position: absolute; inset: 0; pointer-events: none; z-index: 11; overflow: hidden; }
+  .emote-bubble { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 2px; animation: emote-float 2.6s ease-out forwards; }
+  .emote-bubble .ee { font-size: 64px; filter: drop-shadow(0 4px 10px rgba(0,0,0,.6)); }
+  .emote-bubble .en { font-size: 15px; font-weight: 700; color: #eaf6ff; background: rgba(8,24,13,.7); padding: 2px 10px; border-radius: 20px; }
+  @keyframes emote-float {
+    0% { opacity: 0; transform: translateY(24px) scale(.5); }
+    12% { opacity: 1; transform: translateY(0) scale(1.12); }
+    25% { transform: translateY(-6px) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-90px) scale(1.05); }
+  }
+  /* slow-mo replay cinematic overlay (letterbox bars + label) */
+  #replay-overlay { position: absolute; inset: 0; display: none; z-index: 7; pointer-events: none; }
+  #replay-overlay.show { display: block; }
+  #replay-overlay .rl-bar { position: absolute; left: 0; right: 0; height: 9%; background: #000; }
+  #replay-overlay .rl-top { top: 0; } #replay-overlay .rl-bot { bottom: 0; }
+  #replay-overlay .rl-label { position: absolute; top: calc(9% + 14px); left: 28px; color: #fff; font-size: 20px; font-weight: 800; letter-spacing: 4px; text-shadow: 0 2px 8px #000; animation: rl-blink 1s steps(2) infinite; }
+  @keyframes rl-blink { 50% { opacity: .35; } }
   #pause-btn { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 7; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(200,240,74,.3); background: rgba(8,28,14,.85); color: #c8f04a; font-size: 18px; cursor: pointer; display: none; }
   #pause-btn.show { display: block; }
   #userpause { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(3,10,6,.82); backdrop-filter: blur(5px); z-index: 8; cursor: pointer; }
@@ -179,10 +205,17 @@
     <div class="sb-row"><div class="sb-serve" id="serve0"></div><div class="sb-name blue" id="name0">Blue</div><div class="sb-num" id="sets0">0</div><div class="sb-num" id="games0">0</div><div class="sb-pts" id="pts0">0</div></div>
     <div class="sb-row"><div class="sb-serve" id="serve1"></div><div class="sb-name red" id="name1">Red</div><div class="sb-num" id="sets1">0</div><div class="sb-num" id="games1">0</div><div class="sb-pts" id="pts1">0</div></div>
   </div>
+  <div id="live-stats">
+    <span class="ls-rally">RALLY 0</span>
+    <span class="ls-aces">ACES 0–0</span>
+    <span class="ls-tag"></span>
+  </div>
 </div>
 <div id="players">No phones connected yet — AI fills every seat.</div>
 <button id="pause-btn" title="Pause (P / Esc)">⏸</button>
 <div id="banner"></div>
+<div id="emote-layer"></div>
+<div id="replay-overlay"><div class="rl-bar rl-top"></div><div class="rl-bar rl-bot"></div><div class="rl-label">⟳ REPLAY</div></div>
 <div id="stats-card">
   <div class="sc-title">MATCH STATS</div>
   <table id="sc-table"></table>
@@ -210,13 +243,13 @@ import { COURT } from '../shared/physics.js';
 import { SessionController, actorPose, teamDisplayNames } from '../shared/session.js';
 import { splitScreenLayout } from '../shared/splitscreen.js';
 import { ROSTER, getPlayer } from '../shared/roster.js';
-import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig, SHIRT_COLORS, sanitizeTeamChoice } from '../shared/protocol.js';
+import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig, SHIRT_COLORS, sanitizeTeamChoice, sanitizeEmote } from '../shared/protocol.js';
 import { HOW_TO_PLAY } from '../shared/howto.js';
 import { AudioDirector } from './js/audio-manager.js';
 import { CrowdManager } from './js/crowd-manager.js';
 import { synthRecipe, playRecipe } from './js/audio-synth.js';
 import { playerModelSpec, swingPose, clipPose, SWING_DURATION, PIVOT_GROUPS } from './js/player-model.js';
-import { MatchStats } from '../shared/match-stats.js';
+import { MatchStats, isHighlightPoint } from '../shared/match-stats.js';
 import { EmotionEngine, expressionFor, gesturePose } from './js/emotions.js';
 import { sampleTimeline } from './js/interactions.js';
 
@@ -808,6 +841,7 @@ function clearAllPause() {
   userPaused = false;
   $('pause').style.display = 'none';
   $('userpause').classList.remove('show');
+  replay = null; ballBuf = []; $('replay-overlay').classList.remove('show'); // no stale replay across match boundaries
 }
 function sendHapticTo(slot, pattern) {
   if (ws?.readyState === 1) ws.send(encode(MSG.HAPTIC, { slot, pattern }));
@@ -874,6 +908,11 @@ async function initNetwork() {
         case MSG.TEAM_CHOICE: // a phone picked its 2v2 team + shirt colour
           if (msg.slot != null) slotChoices[msg.slot] = sanitizeTeamChoice(msg);
           break;
+        case MSG.EMOTE: { // a phone sent a taunt — pop a floating bubble on the TV
+          const emoji = sanitizeEmote(msg.emote);
+          if (emoji != null && msg.slot != null) showEmote(msg.slot, emoji);
+          break;
+        }
         case MSG.HOST_SUPERSEDED:
           // Another device opened the host URL and took over the TV role. Stand
           // down: stop driving the sim and DON'T reconnect (a reconnect would
@@ -942,6 +981,10 @@ $('superseded-reload').addEventListener('click', () => location.reload());
 let activeInteractions = [];
 let emotions = null;
 let matchStats = new MatchStats(); // broadcast stats for the current match
+let liveRally = 0;                 // current rally length, for the live mini-stats line
+let ballBuf = [];                  // ring buffer of recent ball positions, for slow-mo replays
+let replay = null;                 // active slow-mo replay { frames, idx } or null
+const BALL_BUF_N = 150;
 let teamNames = ['Blue', 'Red'];
 
 function startMatch() {
@@ -1044,6 +1087,7 @@ function onMatchCreated(title) {
   for (const slot of connectedSlots) session.attachSlot(slot);
   refreshNames(); // team labels from typed phone names, else character surnames, else Blue/Red
   $('scoreboard').style.display = 'block';
+  liveRally = 0; updateLiveStats(); $('live-stats').classList.add('show');
   $('pause-btn').classList.add('show');
   updateScoreboard({ setsWon: [0, 0], games: [0, 0], display: '0-0' });
   if (title) banner(title, 3500);
@@ -1053,6 +1097,47 @@ function onMatchCreated(title) {
 $('pause-btn').addEventListener('click', toggleUserPause);
 $('userpause').addEventListener('click', toggleUserPause);
 $('end-match-btn').addEventListener('click', e => { e.stopPropagation(); endGameToMenu(); });
+
+// Live mini-stats line (rally counter + aces tally + a brief result tag).
+function updateLiveStats(tag) {
+  const ls = $('live-stats');
+  const sum = matchStats.summary();
+  ls.querySelector('.ls-rally').textContent = `RALLY ${liveRally}`;
+  ls.querySelector('.ls-aces').textContent = `ACES ${sum.teams[0].aces}–${sum.teams[1].aces}`;
+  if (tag) {
+    const t = ls.querySelector('.ls-tag');
+    t.textContent = tag; t.classList.add('show');
+    clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 1500);
+  }
+}
+// The short headline for a finished point (drives the live tag + crowd colour).
+function pointTag(e) {
+  if (e.reason === 'double_fault') return 'DOUBLE FAULT';
+  if (e.reason === 'double_bounce') return (e.rallyLength ?? 0) === 0 ? 'ACE!' : (e.rallyLength >= 8 ? 'GREAT RALLY' : 'WINNER');
+  if ((e.reason === 'out' || e.reason === 'net') && (e.rallyLength ?? 0) >= 8) return 'GREAT RALLY';
+  return null;
+}
+
+// Kick off a slow-mo replay of the buffered winning shot (the render loop plays it).
+function startReplay() {
+  if (replay || ballBuf.length < 15) return;
+  replay = { frames: ballBuf.slice(-80), idx: 0 }; // last ~1.3 s of ball flight
+  $('replay-overlay').classList.add('show');
+}
+
+// Pop a phone emote as a floating bubble on the emoting player's side of the TV.
+function showEmote(slot, emoji) {
+  const player = session.director?.players.find(p => p.controlledBySlot === slot);
+  const team = player?.team ?? (slot % 2);                  // team 0 = near (lower), team 1 = far (upper)
+  const name = slotNames[slot] ?? `Player ${slot + 1}`;
+  const b = document.createElement('div');
+  b.className = 'emote-bubble';
+  b.innerHTML = `<span class="ee">${emoji}</span><span class="en">${name}</span>`;
+  b.style.top = team === 0 ? `${58 + Math.random() * 12}%` : `${16 + Math.random() * 12}%`;
+  b.style.left = `${20 + Math.random() * 56}%`;
+  $('emote-layer').appendChild(b);
+  setTimeout(() => b.remove(), 2600);
+}
 
 // Broadcast-style end-of-match summary from the accumulated MatchStats.
 function renderStatsCard() {
@@ -1105,6 +1190,9 @@ function handleSessionEvents(events) {
         banner(`DOUBLE FAULT — ${teamNames[1 - e.team]} wins it`, 1900);
         break;
       case 'serve': {
+        crowd.preServe();                        // (was a dead duplicate case below — folded in here)
+        liveRally = 0; updateLiveStats();        // reset the live rally counter for the new point
+        ballBuf = [];                            // start a fresh replay buffer for this point
         // Clear any "your serve" prompt on the server's phone.
         const sp = session.director?.players[e.player]?.controlledBySlot;
         if (sp !== null && sp !== undefined && ws?.readyState === 1) {
@@ -1123,12 +1211,11 @@ function handleSessionEvents(events) {
           ws.send(encode(MSG.MATCH_PHASE, { phase: 'playing', snapshot: session.director?.serialize() }));
         }
         break;
-      case 'serve': crowd.preServe(); break;
       case 'hit': {
         const power = Math.min(1, e.power ?? 0.7);
         audio.racketHit({ action: e.action, power, pos: e.pos });
         if (power > 0.4) audio.grunt({ power, pos: e.pos });
-        if (e.rallyLength) crowd.rallyShot({ rallyLength: e.rallyLength, ballSpeed: e.ballSpeed ?? 25 });
+        if (e.rallyLength) { crowd.rallyShot({ rallyLength: e.rallyLength, ballSpeed: e.ballSpeed ?? 25 }); liveRally = e.rallyLength; updateLiveStats(); }
         if (e.slot !== null && e.slot !== undefined) {
           sendHapticTo(e.slot, e.action === 'smash' ? HAPTIC_PATTERNS.powerSmash : HAPTIC_PATTERNS.standardHit);
         }
@@ -1146,6 +1233,9 @@ function handleSessionEvents(events) {
       case 'point': {
         crowd.pointWon(e);
         updateScoreboard(e);
+        updateLiveStats(pointTag(e));            // refresh aces tally + flash the point result
+        liveRally = 0;
+        if (isHighlightPoint(e)) startReplay();  // slow-mo the winning shot on a highlight
         const big = e.winningShot === 'smash' || e.rallyLength >= 8 || e.isPressurePoint;
         if (big) camShake = Math.min(0.5, camShake + 0.16);
         emotions?.pointWon(e.team, { big, reason: e.reason });
@@ -1165,7 +1255,7 @@ function handleSessionEvents(events) {
         // freeze the trophy scene.
         if (ws?.readyState === 1) ws.send(encode(MSG.MATCH_PHASE, { phase: 'lobby' }));
         break;
-      case 'bracket': $('stats-card').classList.remove('show'); crowd.pointWon({ winningShot: 'smash', rallyLength: 10 }); showBracket(e.round, e.bracket); break;
+      case 'bracket': $('stats-card').classList.remove('show'); $('live-stats').classList.remove('show'); crowd.pointWon({ winningShot: 'smash', rallyLength: 10 }); showBracket(e.round, e.bracket); break;
       case 'champion':
         banner(`🏆 ${e.entrant.name} — CHAMPION`, 6000);
         crowd.pointWon({ winningShot: 'smash', rallyLength: 20, isPressurePoint: true });
@@ -1177,6 +1267,7 @@ function handleSessionEvents(events) {
         $('menu').style.display = 'flex';
         $('bracket-overlay').style.display = 'none';
         $('scoreboard').style.display = 'none';
+        $('live-stats').classList.remove('show');
         $('stats-card').classList.remove('show');
         $('pause-btn').classList.remove('show');
         // Clear BOTH pause states on any return to the menu (a stuck flag would
@@ -1295,7 +1386,23 @@ function frame(now) {
   const dir = session.director;
   animateActors(realDt || 0.016);
 
-  if (dir?.ball) {
+  if (replay) {
+    // Play the buffered winning shot back in slow motion (the live sim keeps
+    // running underneath for the next point; we only override the ball here).
+    const f = replay.frames[Math.min(Math.floor(replay.idx), replay.frames.length - 1)];
+    ballMesh.visible = trail.visible = ballShadow.visible = true;
+    ballMesh.position.set(f.x, f.y, f.z);
+    ballMesh.scale.set(1, 1, 1);
+    ballShadow.position.x = f.x; ballShadow.position.z = f.z;
+    ballShadow.scale.setScalar(Math.max(0.12, 0.3 - f.y * 0.02));
+    ballShadow.material.opacity = Math.max(0.08, 0.34 - f.y * 0.03);
+    trailPositions.copyWithin(3, 0, (TRAIL_N - 1) * 3);
+    trailPositions[0] = f.x; trailPositions[1] = f.y; trailPositions[2] = f.z;
+    trailGeom.attributes.position.needsUpdate = true;
+    replay.idx += 0.6;                          // slow motion (~0.6× speed)
+    if (replay.idx >= replay.frames.length) { replay = null; $('replay-overlay').classList.remove('show'); }
+    hadBall = false;                            // so the next live ball re-seeds the trail
+  } else if (dir?.ball) {
     ballMesh.visible = trail.visible = ballShadow.visible = true;
     const bp = dir.ball.pos;
     ballMesh.position.set(bp.x, bp.y, bp.z);
@@ -1314,6 +1421,8 @@ function frame(now) {
     trailPositions.copyWithin(3, 0, (TRAIL_N - 1) * 3);
     trailPositions[0] = bp.x; trailPositions[1] = bp.y; trailPositions[2] = bp.z;
     trailGeom.attributes.position.needsUpdate = true;
+    ballBuf.push({ x: bp.x, y: bp.y, z: bp.z });   // record for slow-mo replays
+    if (ballBuf.length > BALL_BUF_N) ballBuf.shift();
     hadBall = true;
   } else {
     ballMesh.visible = trail.visible = ballShadow.visible = false;

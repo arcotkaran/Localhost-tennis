@@ -64,10 +64,13 @@ roofline floodlights), real-time shadows with ACES filmic tone mapping,
 articulated player models with walk cycles, per-shot swing animations, and
 a body-language engine — fist pumps, slumps, head shakes, and facial
 expressions that track the score. 1v1 renders as stacked full-width bands;
-2v2 is a team-wise split. A broadcast-style **match-stats card** (aces, winners,
-unforced errors, double faults, fastest serve, longest rally) shows at the end of
-every match. "How to Play" lives on the TV menu and behind the "?" button on
-every phone, rendered from one shared source.
+2v2 is a team-wise split. Broadcast touches: a **live mini-stats** line (rally
+counter + aces) during play, a **slow-mo replay** of the winning shot on
+highlight points (match/break points, long rallies, smashes, aces), and an
+end-of-match **match-stats card** (aces, winners, unforced errors, double faults,
+fastest serve, longest rally). Players can fire **emotes/taunts** from their
+phone that pop as floating bubbles on the TV. "How to Play" lives on the TV menu
+and behind the "?" button on every phone, rendered from one shared source.
 
 ## Testing gates
 
@@ -94,7 +97,7 @@ npm run test:phase20   # tap-to-toss two-step serve
 npm run test:phase21   # flight recorder + shared testbed plan
 ```
 
-237 tests across 21 gates, all passing (`npm test`).
+239 tests across 21 gates, all passing (`npm test`).
 
 ## Test Lab & flight recorder
 

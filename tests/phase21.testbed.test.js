@@ -8,8 +8,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameLog } from '../shared/game-log.js';
 import { GameDirector } from '../shared/game-director.js';
-import { sanitizeTeamChoice, SHIRT_COLORS } from '../shared/protocol.js';
-import { MatchStats } from '../shared/match-stats.js';
+import { sanitizeTeamChoice, SHIRT_COLORS, sanitizeEmote, EMOTES } from '../shared/protocol.js';
+import { MatchStats, isHighlightPoint } from '../shared/match-stats.js';
 import { runPlan, CASES } from '../tools/testbed/plan.mjs';
 
 const DT = 1 / 120;
@@ -151,6 +151,13 @@ test('sanitizeTeamChoice clamps the team and validates the shirt colour', () => 
   assert.deepEqual(sanitizeTeamChoice({}), { team: 0, color: null });
 });
 
+test('sanitizeEmote passes only known emotes (anything else → null)', () => {
+  assert.equal(sanitizeEmote(EMOTES[0]), EMOTES[0]);
+  assert.equal(sanitizeEmote('💣'), null);        // not in the palette
+  assert.equal(sanitizeEmote('<b>x</b>'), null);  // no arbitrary markup reaches the TV
+  assert.equal(sanitizeEmote(undefined), null);
+});
+
 // ---------- broadcast match statistics ----------
 
 test('MatchStats classifies aces, winners, unforced errors, double faults & fastest serve', () => {
@@ -176,6 +183,15 @@ test('MatchStats classifies aces, winners, unforced errors, double faults & fast
   assert.equal(sum.teams[0].fastestServeKmh, Math.round(50 * 3.6), 'fastest serve tracked in km/h');
   assert.equal(sum.teams[0].pointsWon, 4);
   assert.equal(sum.longestRally, 6);
+});
+
+test('isHighlightPoint flags pressure points, long rallies, smashes and aces only', () => {
+  assert.equal(isHighlightPoint({ isPressurePoint: true }), true, 'pressure point');
+  assert.equal(isHighlightPoint({ rallyLength: 9 }), true, 'long rally');
+  assert.equal(isHighlightPoint({ winningShot: 'smash', rallyLength: 2 }), true, 'smash winner');
+  assert.equal(isHighlightPoint({ reason: 'double_bounce', rallyLength: 0 }), true, 'ace');
+  assert.equal(isHighlightPoint({ reason: 'net', rallyLength: 3 }), false, 'ordinary point');
+  assert.equal(isHighlightPoint(null), false);
 });
 
 test('MatchStats over a real AI match is internally consistent', () => {

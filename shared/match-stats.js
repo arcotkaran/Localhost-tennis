@@ -9,6 +9,18 @@
 //   out / net      → the LOSER put it out or into the net → an UNFORCED ERROR
 //   double_fault   → counted from the double_fault event (server's error)
 
+// Is a finished point worth a slow-mo replay? Match/break-point pressure, a long
+// rally, a smash winner, or an ace. Pure so the renderer's replay trigger is
+// test-covered. `e` is a director 'point' event.
+export function isHighlightPoint(e) {
+  if (!e) return false;
+  const rally = e.rallyLength ?? 0;
+  return !!e.isPressurePoint
+    || rally >= 8
+    || e.winningShot === 'smash'
+    || (e.reason === 'double_bounce' && rally === 0); // ace
+}
+
 export class MatchStats {
   constructor() {
     this.serverTeam = null;       // team that struck the most recent serve

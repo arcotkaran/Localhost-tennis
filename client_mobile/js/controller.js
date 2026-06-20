@@ -6,7 +6,7 @@
 // Both work at once (two thumbs) via per-touch identifiers. Coordinates are
 // natural landscape — we never CSS-rotate, so a visual "up" swipe is up.
 
-import { MSG, encode, decode, SHIRT_COLORS } from '../../shared/protocol.js';
+import { MSG, encode, decode, SHIRT_COLORS, EMOTES } from '../../shared/protocol.js';
 import { PHONE_CHEAT_SHEET } from '../../shared/howto.js';
 import { gestureToShot } from '../../shared/gestures.js';
 import { decideOrientation, tryNativeLock, watchOrientation, ORIENT } from './orientation.js';
@@ -319,6 +319,16 @@ $('fullscreen-btn').addEventListener('click', async () => {
     if (document.fullscreenElement) { await document.exitFullscreen?.(); }
     else if (env.requestFullscreen) { await env.requestFullscreen(); tryNativeLock(env); } // re-assert landscape lock
   } catch { /* unsupported (iOS) — ignore */ }
+});
+
+// ---- emotes / taunts: pop a bubble on the TV ----
+$('emote-bar').innerHTML = EMOTES.map(e => `<button data-emote="${e}">${e}</button>`).join('');
+$('emote-btn').addEventListener('click', () => $('emote-bar').classList.toggle('show'));
+$('emote-bar').addEventListener('click', e => {
+  const b = e.target.closest('[data-emote]'); if (!b) return;
+  send(encode(MSG.EMOTE, { emote: b.dataset.emote }));
+  haptics.trigger('standardHit');
+  $('emote-bar').classList.remove('show');
 });
 
 // ---- pause/resume (any phone can toggle; the TV decides and echoes the state) ----

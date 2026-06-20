@@ -12,6 +12,7 @@ export const MSG = {
   SET_NAME: 'set_name',         // phone → server: { name } — change my display name; server re-broadcasts PLAYER_JOINED
   END_MATCH: 'end_match',        // phone → server → host: quit the current match back to the menu
   TEAM_CHOICE: 'team_choice',   // phone → server → host: { team:0|1, color } — 2v2 lobby team & shirt pick
+  EMOTE: 'emote',               // phone → server → host: { emote } — taunt/reaction shown on the TV
 
   // server -> client
   JOINED: 'joined',             // { slot, roomCode, resumed, snapshot? }
@@ -53,6 +54,14 @@ export function sanitizeTeamChoice(choice = {}) {
   const team = (choice?.team === 1) ? 1 : 0;
   const color = SHIRT_COLORS.includes(choice?.color) ? choice.color : null;
   return { team, color };
+}
+
+// ----- phone emotes / taunts -----
+// A fixed set the phone can send and the TV pops as a bubble. Shared so the
+// phone, host, and server agree (and a malformed payload can never reach the TV).
+export const EMOTES = ['👍', '🔥', '😎', '😤', '👏', '🎾', '😅', '💪', '🙌', '😱'];
+export function sanitizeEmote(emote) {
+  return EMOTES.includes(emote) ? emote : null;
 }
 
 // Clamp a config that arrived over the wire to known-good values so a stale or
