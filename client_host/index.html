@@ -28,7 +28,13 @@
   #players { position: absolute; bottom: 14px; left: 24px; font-size: 14px; color: #9fd8a8; z-index: 5; text-shadow: 0 2px 6px #000; }
   #banner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 58px; font-weight: 800; letter-spacing: 2px; text-shadow: 0 6px 30px rgba(0,0,0,.9), 0 0 60px rgba(200,240,74,.25); z-index: 6; opacity: 0; transition: opacity .45s, transform .45s; transform: scale(.96); pointer-events: none; text-align: center; }
   #banner.show { opacity: 1; transform: scale(1); }
-  #pause { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.72); backdrop-filter: blur(4px); font-size: 34px; z-index: 8; text-align: center; }
+  #pause { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.72); backdrop-filter: blur(4px); z-index: 8; text-align: center; }
+  #pause .pause-box { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  #pause .pause-title { font-size: 40px; font-weight: 800; letter-spacing: 4px; color: #c8f04a; }
+  #pause .pause-sub { font-size: 20px; color: #cfe8d4; }
+  #pause #pause-qr { width: 150px; height: 150px; background: #fff; border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center; }
+  #pause #pause-qr svg { width: 100%; height: 100%; }
+  #pause .pause-hint { font-size: 15px; color: #9fd8a8; }
   #pause-btn { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 7; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(200,240,74,.3); background: rgba(8,28,14,.85); color: #c8f04a; font-size: 18px; cursor: pointer; display: none; }
   #pause-btn.show { display: block; }
   #userpause { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(3,10,6,.82); backdrop-filter: blur(5px); z-index: 8; cursor: pointer; }
@@ -37,11 +43,24 @@
   #userpause .sub { font-size: 18px; color: #9fd8a8; }
   #end-match-btn { margin-top: 22px; font-size: 17px; padding: 11px 34px; border-radius: 10px; border: 1px solid #f0824a; background: rgba(60,18,10,.85); color: #ffb999; font-weight: 700; cursor: pointer; letter-spacing: 1px; }
   #end-match-btn:hover { background: #f0824a; color: #2a0c06; }
+  #superseded { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(3,10,6,.94); backdrop-filter: blur(6px); z-index: 13; text-align: center; padding: 40px; }
+  #superseded.show { display: flex; }
+  #superseded .big { font-size: 40px; font-weight: 800; letter-spacing: 2px; color: #c8f04a; }
+  #superseded .sub { font-size: 18px; color: #9fd8a8; max-width: 30ch; }
+  #superseded button { margin-top: 18px; font-size: 18px; padding: 12px 40px; border-radius: 10px; border: none; background: #c8f04a; color: #11300f; font-weight: 800; cursor: pointer; letter-spacing: 1px; }
   #divider { position: absolute; display: none; background: linear-gradient(90deg, transparent, #c8f04a55, transparent); z-index: 4; }
 
   /* ---- menu ---- */
-  #menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: radial-gradient(ellipse at 50% 30%, #14431f 0%, #07180c 70%, #04100a 100%); z-index: 10; }
-  #menu h1 { font-size: 46px; letter-spacing: 4px; text-shadow: 0 4px 24px rgba(200,240,74,.3); }
+  /* Center-ish but NEVER clip: top-align with auto margins so the column sits
+     centered when it fits and scrolls from the top (title visible) when the
+     viewport is short. Vertical sizes scale with vh so it fits 1080 without
+     scrolling. (Was justify-content:center, which clipped the title off the top
+     on a 1080 TV.) */
+  #menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: clamp(8px, 1.7vh, 18px); padding: clamp(10px, 2.5vh, 40px) 16px; overflow-y: auto; background: radial-gradient(ellipse at 50% 30%, #14431f 0%, #07180c 70%, #04100a 100%); z-index: 10; }
+  #menu > * { flex-shrink: 0; }
+  #menu > :first-child { margin-top: auto; }   /* these two auto margins center */
+  #menu > :last-child  { margin-bottom: auto; } /* the column when it fits */
+  #menu h1 { font-size: clamp(30px, 4.4vh, 46px); letter-spacing: 4px; text-shadow: 0 4px 24px rgba(200,240,74,.3); }
   #menu h1 small { display: block; font-size: 13px; letter-spacing: 8px; color: #9fd8a8; font-weight: 400; margin-top: 2px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
   .row label { width: 110px; text-align: right; color: #9fd8a8; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
@@ -150,8 +169,14 @@
 <div id="players">No phones connected yet — AI fills every seat.</div>
 <button id="pause-btn" title="Pause (P / Esc)">⏸</button>
 <div id="banner"></div>
-<div id="pause">Game paused —<br>waiting for a player to reconnect…</div>
+<div id="pause"><div class="pause-box">
+  <div class="pause-title">⏸ Paused</div>
+  <div class="pause-sub">Waiting for a player to reconnect…</div>
+  <div id="pause-qr"></div>
+  <div class="pause-hint">Scan to rejoin — your spot &amp; score are saved</div>
+</div></div>
 <div id="userpause"><div>⏸ PAUSED</div><div class="sub">Press P, Esc, or tap to resume</div><button id="end-match-btn">⏹ END MATCH → MENU</button></div>
+<div id="superseded"><div class="big">📺 TV moved to another device</div><div class="sub">Another screen on this Wi-Fi opened the host URL and is now the TV. Reload here to take it back.</div><button id="superseded-reload">RELOAD TO TAKE OVER</button></div>
 <div id="divider"></div>
 <div id="vignette"></div>
 
@@ -167,7 +192,7 @@ import { COURT } from '../shared/physics.js';
 import { SessionController, actorPose, teamDisplayNames } from '../shared/session.js';
 import { splitScreenLayout } from '../shared/splitscreen.js';
 import { ROSTER, getPlayer } from '../shared/roster.js';
-import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig } from '../shared/protocol.js';
+import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig, SHIRT_COLORS, sanitizeTeamChoice } from '../shared/protocol.js';
 import { HOW_TO_PLAY } from '../shared/howto.js';
 import { AudioDirector } from './js/audio-manager.js';
 import { CrowdManager } from './js/crowd-manager.js';
@@ -562,7 +587,10 @@ let actors = [];
 function buildActors(players, characters) {
   for (const a of actors) { scene.remove(a.group); scene.remove(a.shadow); }
   actors = players.map((p, i) => {
-    const spec = playerModelSpec(characters?.[i] ?? p.character, p.team);
+    // Doubles partners share a team colour family but get distinct shades, so
+    // all four players are individually identifiable. Singles/1v1 → variant 0.
+    const pairIndex = players.slice(0, i).filter(q => q.team === p.team).length;
+    const spec = playerModelSpec(characters?.[i] ?? p.character, p.team, pairIndex, matchColors[i] ?? null);
     const group = new THREE.Group();
     const pivots = {};
     for (const name of PIVOT_GROUPS) {
@@ -641,11 +669,22 @@ function buildCameras(forMode) {
     cam.lookAt(0, 0.4, sign * -3);
     return { ...v, cam };
   });
+  // Precompute integer, gap-free GL rects (y is from the BOTTOM in WebGL). At
+  // odd window heights / fractional devicePixelRatio the old screenH/2 split left
+  // a sub-pixel seam that clipped a sliver off the bottom band; flooring the
+  // halves and letting them tile exactly removes it.
+  if (viewports.length === 2 && layout.split === 'horizontal') {
+    const half = Math.floor(innerHeight / 2);
+    viewports[0].glRect = { x: 0, y: half, w: innerWidth, h: innerHeight - half }; // screen-top band
+    viewports[1].glRect = { x: 0, y: 0, w: innerWidth, h: half };                   // screen-bottom band
+  } else {
+    for (const v of viewports) v.glRect = { x: v.x, y: innerHeight - v.y - v.h, w: v.w, h: v.h };
+  }
   const div = $('divider');
   if (viewports.length === 2) {
     div.style.display = 'block';
     div.style.left = '0'; div.style.right = '0'; div.style.height = '3px';
-    div.style.top = `${innerHeight / 2 - 1.5}px`; div.style.width = '';
+    div.style.top = `${innerHeight - Math.floor(innerHeight / 2) - 1.5}px`; div.style.width = '';
   } else div.style.display = 'none';
 }
 const defaultCam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 240);
@@ -672,9 +711,47 @@ function playDescriptors() {
 }
 
 // ---------- networking ----------
-let ws = null, paused = false, userPaused = false, matchLive = false;
+let ws = null, paused = false, userPaused = false, matchLive = false, superseded = false;
 const connectedSlots = new Set();
 const slotNames = {}; // slot → the name the phone on that slot typed
+const slotChoices = {}; // slot → { team, color } picked on the phone for 2v2
+
+// Resolve the 2v2 phone picks into (a) a slot→player remap that puts each phone
+// on the team it chose, and (b) a per-PLAYER shirt colour (deduped so all four
+// are distinct). Slots 0/2 are team 0's players, 1/3 are team 1's. Returns
+// { slotPlayers, colorByPlayer } — slotPlayers is null when no remap is needed.
+function resolveTeams() {
+  const natural = slot => (slot % 2 === 0 ? 0 : 1);
+  const pool = { 0: [0, 2], 1: [1, 3] };       // free player indices per team
+  const slotPlayers = {}; const leftover = [];
+  for (const slot of [0, 1, 2, 3]) {
+    const t = connectedSlots.has(slot) ? slotChoices[slot]?.team : undefined;
+    if (t != null && pool[t].length) slotPlayers[slot] = pool[t].shift();
+    else leftover.push(slot);
+  }
+  const rem = [...pool[0], ...pool[1]];
+  for (const slot of leftover) {                // keep naturals where possible
+    const i = rem.indexOf(slot);
+    slotPlayers[slot] = i >= 0 ? rem.splice(i, 1)[0] : rem.shift();
+  }
+  // colours: each connected phone's picked colour, mapped to the PLAYER it now
+  // controls; dedupe collisions to the next free palette colour.
+  const used = new Set(); const colorByPlayer = {};
+  const take = pref => {
+    const order = [pref, ...SHIRT_COLORS].filter(Boolean);
+    const pick = order.find(c => !used.has(c)) ?? null;
+    if (pick) used.add(pick);
+    return pick;
+  };
+  for (const slot of [0, 1, 2, 3]) {
+    if (!connectedSlots.has(slot)) continue;
+    const c = take(slotChoices[slot]?.color);
+    if (c) colorByPlayer[slotPlayers[slot]] = parseInt(c.replace('#', ''), 16);
+  }
+  const remap = [0, 1, 2, 3].some(s => slotPlayers[s] !== s) ? slotPlayers : null;
+  return { slotPlayers: remap, colorByPlayer };
+}
+let matchColors = {}; // player index → shirt colour int, for buildActors
 
 // User-initiated pause (distinct from the disconnect pause). Freezes the sim,
 // shows an overlay, and tells every phone. Triggered by the TV button/keys or
@@ -696,10 +773,22 @@ addEventListener('keydown', e => {
 function endGameToMenu() {
   if (session.state === 'menu') return;
   matchLive = false;
+  clearAllPause();                             // a match ended while disconnect-paused must NOT leave the next one frozen (#9)
   if (ws?.readyState === 1) ws.send(encode(MSG.MATCH_PHASE, { phase: 'lobby' }));
   session.drainEvents();                       // discard any in-flight match events before teardown
   session.quitToMenu();
   handleSessionEvents(session.drainEvents());   // now just the 'menu' event
+}
+
+// Hard-clear BOTH pause states + overlays. The disconnect-pause (`paused`, set by
+// the server's GAME_PAUSED) and the user-pause (`userPaused`) are independent and
+// match-scoped; both must be cleared at every match boundary or a stale flag
+// freezes the sim loop (line gate below) before the next match's first frame.
+function clearAllPause() {
+  paused = false;
+  userPaused = false;
+  $('pause').style.display = 'none';
+  $('userpause').classList.remove('show');
 }
 function sendHapticTo(slot, pattern) {
   if (ws?.readyState === 1) ws.send(encode(MSG.HAPTIC, { slot, pattern }));
@@ -723,7 +812,7 @@ async function initNetwork() {
   } catch {}
   $('code').textContent = code ?? '????';
   $('menu-code').textContent = code ?? '????';
-  renderJoinQR(lanUrl);
+  renderJoinQR(lanUrl, code);
   try {
     ws = new WebSocket(`ws://${location.host}`);
     ws.onopen = () => {
@@ -747,24 +836,41 @@ async function initNetwork() {
           if (!matchLive) {
             connectedSlots.delete(msg.slot);
             delete slotNames[msg.slot];
+            delete slotChoices[msg.slot];
             session.detachSlot(msg.slot);
           }
           refreshNames();
           break;
-        case MSG.GAME_PAUSED: paused = true; $('pause').style.display = 'flex'; break;
+        case MSG.GAME_PAUSED:
+          paused = true;
+          makeQR($('pause-qr'), joinUrl(lastLanUrl, lastCode)); // dropped player can rescan to resume
+          $('pause').style.display = 'flex';
+          break;
         case MSG.GAME_RESUMED: paused = false; $('pause').style.display = 'none'; break;
         case MSG.PAUSE_REQUEST: toggleUserPause(); break; // a phone hit pause
         case MSG.LAUNCH: // a phone pressed Start Game — honored only at the menu
           if (session.state === 'menu') launchFromConfig(sanitizeLaunchConfig(msg.config));
           break;
         case MSG.END_MATCH: endGameToMenu(); break; // a phone tapped End Match
+        case MSG.TEAM_CHOICE: // a phone picked its 2v2 team + shirt colour
+          if (msg.slot != null) slotChoices[msg.slot] = sanitizeTeamChoice(msg);
+          break;
+        case MSG.HOST_SUPERSEDED:
+          // Another device opened the host URL and took over the TV role. Stand
+          // down: stop driving the sim and DON'T reconnect (a reconnect would
+          // re-register and bump the new host, ping-ponging the TV forever).
+          superseded = true;
+          ws.onclose = null;
+          try { ws.close(); } catch {}
+          $('superseded').classList.add('show');
+          break;
 
         case MSG.INPUT:
           if (!paused && !userPaused) session.handleInput(msg.slot, { move: msg.move, action: msg.action, aim: msg.aim, power: msg.power, sens: msg.sens });
           break;
       }
     };
-    ws.onclose = () => setTimeout(initNetwork, 1000);
+    ws.onclose = () => { if (!superseded) setTimeout(initNetwork, 1000); };
   } catch { /* render-only */ }
 }
 
@@ -785,31 +891,42 @@ function refreshNames() {
   updatePlayersLabel();
 }
 
-// Render the join QR (and URL text) from the LAN url the server reports.
-function renderJoinQR(lanUrl) {
-  // If the server didn't supply a LAN url (e.g. opened standalone), fall back
-  // to this page's own origin — still scannable when the TV is on the LAN IP.
-  const url = lanUrl || `${location.protocol}//${location.host}/`;
-  $('join-url').textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+// The controller URL the QR encodes. It carries ?code so scanning JOINS with
+// zero typing (the room code is shown on the TV too, for manual fallback).
+let lastLanUrl = null, lastCode = null;        // remembered for the pause-screen rejoin QR
+function joinUrl(lanUrl, code) {
+  const base = lanUrl || `${location.protocol}//${location.host}/`;
+  return code ? base + (base.includes('?') ? '&' : '?') + 'code=' + code : base;
+}
+function makeQR(boxEl, url) {
   try {
     const qr = window.qrcode(0, 'M'); // 0 = auto-size, medium error correction
-    qr.addData(url);
-    qr.make();
-    $('qr-box').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 0, scalable: true });
-  } catch (e) {
-    $('qr-box').innerHTML = '<span style="color:#11300f;font-size:11px;padding:6px">QR unavailable</span>';
+    qr.addData(url); qr.make();
+    boxEl.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 0, scalable: true });
+  } catch {
+    boxEl.innerHTML = '<span style="color:#11300f;font-size:11px;padding:6px">QR unavailable</span>';
   }
+}
+// Render the menu join QR (and the clean URL text) from the LAN url + room code.
+function renderJoinQR(lanUrl, code) {
+  lastLanUrl = lanUrl; lastCode = code;
+  const base = lanUrl || `${location.protocol}//${location.host}/`;
+  $('join-url').textContent = base.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  makeQR($('qr-box'), joinUrl(lanUrl, code));
 }
 
 // ---------- session ----------
 const session = new SessionController({ seed: (Date.now() % 100000) | 0 });
 initNetwork();
+// Reloading re-opens the host URL → re-registers → bumps whoever took the TV.
+$('superseded-reload').addEventListener('click', () => location.reload());
 let activeInteractions = [];
 let emotions = null;
 let teamNames = ['Blue', 'Red'];
 
 function startMatch() {
   ensureAudioCtx();
+  matchColors = {}; // cleared unless a 2v2 launch sets per-player shirt colours
   const selects = [...$('char-row').querySelectorAll('select')];
   courtMat.map = courtTexture(surface);
   courtMat.needsUpdate = true;
@@ -828,7 +945,9 @@ function startMatch() {
   } else {
     const seats = mode === '2v2' ? 4 : 2;
     const characters = selects.slice(0, seats).map(sel => sel.value ? getPlayer(sel.value) : null);
-    session.startQuickMatch({ mode, surface, format, characters, difficulty });
+    const teams = mode === '2v2' ? resolveTeams() : { slotPlayers: null, colorByPlayer: {} };
+    matchColors = teams.colorByPlayer;
+    session.startQuickMatch({ mode, surface, format, characters, difficulty, slotPlayers: teams.slotPlayers });
   }
   $('menu').style.display = 'none';
 }
@@ -934,11 +1053,14 @@ function handleSessionEvents(events) {
           if (ws?.readyState === 1) ws.send(encode(MSG.SERVE_CUE, { slot: e.slot, on: true, phase: 'strike' }));
         }
         break;
-      case 'fault':
-        // First fault → a quick "Fault" flash (a second serve follows). A
-        // second fault also fires 'fault', but the double_fault banner covers it.
-        if (e.serveNumber === 1) banner('FAULT — second serve', 1100);
+      case 'fault': {
+        // First fault → a quick flash that SAYS why (into the net / long / wide)
+        // so a serve landing deep on the court doesn't read as a mystery fault.
+        // A second fault also fires 'fault', but the double_fault banner covers it.
+        const why = { net: 'INTO THE NET', long: 'LONG', wide: 'WIDE', 'long & wide': 'LONG & WIDE' }[e.detail];
+        if (e.serveNumber === 1) banner(why ? `FAULT — ${why} · second serve` : 'FAULT — second serve', 1300);
         break;
+      }
       case 'double_fault':
         banner(`DOUBLE FAULT — ${teamNames[1 - e.team]} wins it`, 1900);
         break;
@@ -953,6 +1075,7 @@ function handleSessionEvents(events) {
       case 'match_start':
         crowd.preServe();
         matchLive = true;
+        clearAllPause();                       // every new match starts unpaused, regardless of how the last one ended (#9)
         // Tell the server play is live so phone disconnects pause the match.
         if (ws?.readyState === 1) {
           ws.send(encode(MSG.MATCH_PHASE, { phase: 'playing', snapshot: session.director?.serialize() }));
@@ -1012,13 +1135,11 @@ function handleSessionEvents(events) {
         $('bracket-overlay').style.display = 'none';
         $('scoreboard').style.display = 'none';
         $('pause-btn').classList.remove('show');
-        // Clear any user-pause directly (toggleUserPause no-ops at the menu, which
-        // would otherwise leave the next match frozen on a stuck userPaused flag).
-        if (userPaused) {
-          userPaused = false;
-          $('userpause').classList.remove('show');
-          if (ws?.readyState === 1) ws.send(encode(MSG.PAUSE_STATE, { paused: false }));
-        }
+        // Clear BOTH pause states on any return to the menu (a stuck flag would
+        // otherwise freeze the next match — see clearAllPause / #9). Echo the
+        // cleared user-pause to the phones so their overlays close too.
+        if (userPaused && ws?.readyState === 1) ws.send(encode(MSG.PAUSE_STATE, { paused: false }));
+        clearAllPause();
         break;
     }
   }
@@ -1196,8 +1317,9 @@ function frame(now) {
       const ox = camShake ? Math.sin(now * 0.11 + v.team) * 0.5 * camShake : 0;
       const oy = camShake ? Math.cos(now * 0.17 + v.team) * 0.4 * camShake : 0;
       v.cam.position.x += ox; v.cam.position.y += oy;
-      renderer.setViewport(v.x, innerHeight - v.y - v.h, v.w, v.h);
-      renderer.setScissor(v.x, innerHeight - v.y - v.h, v.w, v.h);
+      const r = v.glRect;
+      renderer.setViewport(r.x, r.y, r.w, r.h);
+      renderer.setScissor(r.x, r.y, r.w, r.h);
       renderer.render(scene, v.cam);
       v.cam.position.x -= ox; v.cam.position.y -= oy;
     }
@@ -1214,6 +1336,7 @@ requestAnimationFrame(frame);
 // and read state even when the tab is hidden (rAF stopped).
 window.__tennis = {
   get state() { return { session: session.state, mode: session.matchMode, paused }; },
+  get session() { return session; },
   forceRender() {
     const dir = session.director;
     animateActors(0.016);
@@ -1221,8 +1344,9 @@ window.__tennis = {
     const inMatch = (dir && ['entry', 'match'].includes(session.state)) || session.state === 'trophy';
     if (viewports.length && inMatch) {
       for (const v of viewports) {
-        renderer.setViewport(v.x, innerHeight - v.y - v.h, v.w, v.h);
-        renderer.setScissor(v.x, innerHeight - v.y - v.h, v.w, v.h);
+        const r = v.glRect;
+        renderer.setViewport(r.x, r.y, r.w, r.h);
+        renderer.setScissor(r.x, r.y, r.w, r.h);
         renderer.render(scene, v.cam);
       }
     } else {
@@ -1233,6 +1357,64 @@ window.__tennis = {
     return renderer.domElement;
   },
 };
+</script>
+<script type="module">
+  import { MSG, encode } from '../shared/protocol.js';
+  // OPT-IN auto-player, for watching a hands-free match on the real 3D TV while
+  // testing. OFF by default — open /host?bot (or ?bot=1) to enable. It joins as
+  // a normal phone over the wire, auto-starts the match, then plays whatever
+  // slot it lands in with a simple ball-chasing heuristic (it can read the live
+  // sim via the window.__tennis debug hook, which only exists on this page).
+  if (new URLSearchParams(location.search).has('bot')) {
+    const ws = new WebSocket(`ws://${location.host}`);
+    let seq = 0, hasJoined = false;
+    ws.onopen = () => {
+      setTimeout(async () => {
+        try {
+          const info = await fetch('/api/info').then(r => r.json());
+          ws.send(encode(MSG.JOIN, { code: info.roomCode, playerId: 'tennis-watch-bot', name: 'BOT' }));
+          setTimeout(() => hasJoined = true, 500);
+        } catch (e) { console.error('watch-bot join failed', e); }
+      }, 1500);
+    };
+
+    setInterval(() => {
+      const session = window.__tennis?.session;
+      if (!session) return;
+      if (session.state === 'menu' && hasJoined) {
+        const startBtn = document.getElementById('start');
+        if (startBtn && startBtn.style.display !== 'none' && startBtn.offsetParent !== null) startBtn.click();
+      }
+      const dir = session.director;
+      if (!dir || session.state !== 'match') return;
+      // The bot is the only phone-controlled player; drive whichever slot it got.
+      const p = dir.players.find(pl => pl && pl.controlledBySlot != null);
+      if (!p) return;
+      const ball = dir.ball;
+      let mx = 0, my = 0, action;
+
+      // Serve is handled FIRST — the ball is null in serve_pending, so don't bail
+      // on it or the bot would never toss when it's serving (it'd stall until the
+      // 12 s auto-serve fallback).
+      if (dir.state === 'serve_pending' && dir.currentServer().controlledBySlot === p.controlledBySlot) {
+        action = 'lob';                              // tap → toss
+      } else if (dir.state === 'serve_toss' && ball && ball.vel.y < 0 && ball.pos.y < 2.5) {
+        action = 'flat';                             // swipe → strike near the apex
+      } else if (ball) {
+        // Rally: chase the ball laterally, hold position, swing when it's on you.
+        if (ball.pos.x > p.body.pos.x + 0.3) mx = 1;
+        else if (ball.pos.x < p.body.pos.x - 0.3) mx = -1;
+        const targetZ = p.team === 0 ? 11 : -11;
+        if (p.body.pos.z < targetZ - 1) my = 1;
+        else if (p.body.pos.z > targetZ + 1) my = -1;
+        if (p.team === 1) { mx = -mx; my = -my; }    // team 1's screen is flipped
+        const distZ = Math.abs(ball.pos.z - p.body.pos.z), distX = Math.abs(ball.pos.x - p.body.pos.x);
+        const coming = (p.team === 0) === (ball.vel.z > 0);
+        if (coming && distZ < 2.5 && distX < 1.5 && ball.pos.y < 2.0) action = 'flat';
+      }
+      ws.send(encode(MSG.INPUT, { seq: seq++, t: performance.now(), move: { x: mx, y: my }, action, aim: mx, power: 0.8, sens: 0.85 }));
+    }, 50);
+  }
 </script>
 </body>
 </html>

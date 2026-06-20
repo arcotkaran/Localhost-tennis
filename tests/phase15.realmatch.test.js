@@ -87,6 +87,39 @@ test('all human shots are kept in the court at full power', () => {
   }
 });
 
+// ---------- the lob lands IN the court, not past the baseline ----------
+
+test('human lobs land inside the singles court from common positions, powers, and aims', () => {
+  const maxZ = COURT.length / 2;            // singles baseline (depth)
+  const maxX = COURT.singlesWidth / 2;      // singles sideline (width)
+  for (const surface of ['hard', 'clay', 'grass']) {
+    for (const z of [11.5, 10, 8, 6, 4]) {       // deep to mid-court
+      for (const x of [-3, 0, 3]) {              // centered and pulled wide
+        for (const power of [0.5, 0.7, 0.85, 1.0]) {  // tap-soft up to a hard mishit
+          for (const aim of [-1, 0, 1]) {
+            const d = new GameDirector({ mode: '1v1', seed: 3, surface });
+            d.attachSlot(0);
+            const p = d.players[0];
+            p.body.pos = { x, z };
+            d.ball = new Ball({ pos: { x, y: 1.0, z }, vel: { x: 0, y: 0, z: 6 } });
+            d.hit(p, 'lob', aim, power);
+            // Step at a COARSER dt (1/60, renderer-like) than the clamp's own
+            // predictor (1/120) so the test exercises the integration margin
+            // the lob fix has to absorb — not just the predictor's own frame.
+            let landing = null;
+            for (let i = 0; i < 1500; i++) { if (d.ball.step(1 / 60, d.surface) === 'bounce') { landing = { ...d.ball.pos }; break; } }
+            const tag = `${surface} x=${x} z=${z} p=${power} a=${aim}`;
+            assert.ok(landing, `lob bounced (${tag})`);
+            assert.ok(Math.abs(landing.z) <= maxZ, `lob depth inside baseline (z=${landing.z.toFixed(2)}; ${tag})`);
+            assert.ok(Math.abs(landing.x) <= maxX, `lob inside sidelines (x=${landing.x.toFixed(2)}; ${tag})`);
+            assert.ok(Math.sign(landing.z) !== Math.sign(z), `lob crossed the net (${tag})`);
+          }
+        }
+      }
+    }
+  }
+});
+
 // ---------- serve from the baseline ----------
 
 test('serve is struck from behind the baseline at a service corner', () => {

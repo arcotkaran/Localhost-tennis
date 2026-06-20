@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>🎾 Tennis Test Lab</title>
+<style>
+  :root {
+    --bg: #0c1118; --panel: #131b26; --panel2: #0f1620; --line: #243246;
+    --ink: #e7eef7; --dim: #8aa0b8; --accent: #4ad8f0; --good: #46d17a;
+    --bad: #ff5d6c; --warn: #ffc24b; --court: #1a6b3a; --courtline: #eaf6ff;
+    --blue: #4ad8f0; --red: #f0654a; --ball: #e8ff52;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 13px/1.4 -apple-system, Segoe UI, Roboto, system-ui, sans-serif; }
+  body { display: grid; grid-template-rows: auto 1fr; height: 100vh; overflow: hidden; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 8px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: .3px; }
+  header .sub { color: var(--dim); font-size: 11px; }
+  .tabs { display: flex; gap: 4px; margin-left: 8px; }
+  .tabs button { background: var(--panel2); color: var(--dim); border: 1px solid var(--line);
+    padding: 5px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; }
+  .tabs button.on { background: var(--accent); color: #06222a; border-color: var(--accent); }
+  header .spacer { flex: 1; }
+  .tally { display: flex; gap: 10px; align-items: center; font-weight: 700; }
+  .tally .p { color: var(--good); } .tally .f { color: var(--bad); } .tally .t { color: var(--dim); font-weight: 500; }
+
+  main { display: grid; grid-template-columns: 280px 1fr 360px; min-height: 0; }
+  .col { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .col.left { border-right: 1px solid var(--line); background: var(--panel2); }
+  .col.right { border-left: 1px solid var(--line); background: var(--panel2); }
+  .col h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--dim);
+    margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); position: sticky; top: 0;
+    background: var(--panel2); display: flex; align-items: center; gap: 8px; }
+  .scroll { overflow-y: auto; min-height: 0; }
+
+  /* ---- case list ---- */
+  .area-h { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    padding: 8px 12px 3px; }
+  .case { display: grid; grid-template-columns: 16px 1fr; gap: 7px; padding: 5px 12px; cursor: pointer;
+    border-left: 2px solid transparent; }
+  .case:hover { background: #18222f; }
+  .case.cur { background: #1c2a3a; border-left-color: var(--accent); }
+  .case .ic { text-align: center; }
+  .case .nm { font-weight: 600; }
+  .case .ms { color: var(--dim); font-size: 11px; }
+  .case.pass .ic { color: var(--good); } .case.fail .ic { color: var(--bad); }
+  .case.run .ic { color: var(--warn); }
+
+  /* ---- center ---- */
+  .stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .canvas-wrap { flex: 1; position: relative; min-height: 0; background:
+    radial-gradient(120% 80% at 50% 0%, #16202c 0%, #0b0f15 100%); }
+  canvas { width: 100%; height: 100%; display: block; }
+  .overlay { position: absolute; left: 14px; top: 12px; right: 14px; pointer-events: none; }
+  .ov-title { font-weight: 700; font-size: 14px; text-shadow: 0 1px 2px #000; }
+  .ov-sub { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-weight: 800; font-size: 11px;
+    margin-left: 8px; vertical-align: middle; }
+  .badge.pass { background: var(--good); color: #052e16; }
+  .badge.fail { background: var(--bad); color: #2e0509; }
+  .badge.run { background: var(--warn); color: #2e2105; }
+
+  .controls { border-top: 1px solid var(--line); background: var(--panel); padding: 10px 12px;
+    display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .controls .grp { display: flex; gap: 6px; align-items: center; }
+  .controls label { color: var(--dim); font-size: 11px; }
+  button.btn { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; }
+  button.btn:hover { border-color: var(--accent); }
+  button.btn.primary { background: var(--accent); color: #06222a; border-color: var(--accent); }
+  button.btn.stop { background: var(--bad); color: #fff; border-color: var(--bad); }
+  button.btn:disabled { opacity: .4; cursor: default; }
+  input[type=range] { width: 110px; accent-color: var(--accent); }
+  select, input[type=number] { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 6px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .seg button { background: var(--panel2); color: var(--dim); border: 0; padding: 6px 10px; cursor: pointer; font-weight: 600; }
+  .seg button.on { background: var(--accent); color: #06222a; }
+  .manual { display: none; }
+  .manual.on { display: flex; }
+  .pad { display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 30px); gap: 3px; }
+  .pad button { padding: 0; }
+
+  /* ---- log panel ---- */
+  .logbar { display: flex; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--line); align-items: center; }
+  #log { font: 11px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace; padding: 6px 10px; }
+  .le { white-space: pre-wrap; word-break: break-word; padding: 1px 0; color: #b9c8da; }
+  .le .ty { color: var(--accent); }
+  .le.warn { color: var(--warn); } .le.warn .ty { color: var(--warn); }
+  .le .seq { color: #54677d; }
+  .empty { color: var(--dim); padding: 20px 12px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎾 Test Lab</h1>
+  <span class="sub">drives the real GameDirector · flight recorder on</span>
+  <div class="tabs">
+    <button id="tab-auto" class="on">Auto sweep</button>
+    <button id="tab-manual">Manual</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="tally">
+    <span class="p" id="t-pass">0✓</span>
+    <span class="f" id="t-fail">0✗</span>
+    <span class="t" id="t-tot">/ 0</span>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: case list -->
+  <div class="col left">
+    <h2>Test plan <span id="plan-count" style="color:var(--dim)"></span></h2>
+    <div class="scroll" id="cases"></div>
+  </div>
+
+  <!-- CENTER: court + controls -->
+  <div class="col">
+    <div class="stage">
+      <div class="canvas-wrap">
+        <canvas id="court"></canvas>
+        <div class="overlay">
+          <div class="ov-title" id="ov-title">Ready — click <b>Run all</b> or pick a test.</div>
+          <div class="ov-sub" id="ov-sub">Top-down court. Green marker = bounced in, red = out. The dashed box is the serve target.</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <!-- AUTO controls -->
+        <div class="grp auto-ctl">
+          <button class="btn primary" id="run-all">▶ Run all</button>
+          <button class="btn stop" id="stop" disabled>■ Stop</button>
+        </div>
+        <div class="grp">
+          <label>Speed</label>
+          <input type="range" id="speed" min="0.5" max="6" step="0.5" value="2" />
+          <span id="speed-v" class="sub" style="color:var(--dim)">2×</span>
+        </div>
+
+        <!-- MANUAL controls -->
+        <div class="manual grp" id="manual-serve" style="gap:8px">
+          <span class="seg" id="serve-side"><button data-side="deuce" class="on">Deuce</button><button data-side="ad">Ad</button></span>
+          <label>aim</label><input type="range" id="serve-aim" min="-1" max="1" step="0.05" value="0" />
+          <label>power</label><input type="range" id="serve-pow" min="0.3" max="1" step="0.05" value="0.6" />
+          <button class="btn primary" id="do-serve">🚀 Serve</button>
+        </div>
+        <div class="manual grp" id="manual-shot" style="gap:8px">
+          <span class="seg" id="shot-fam">
+            <button data-f="lob" class="on">Lob</button><button data-f="topspin">Topspin</button>
+            <button data-f="flat">Flat</button><button data-f="slice">Slice</button>
+          </span>
+          <label>aim</label><input type="range" id="shot-aim" min="-1" max="1" step="0.05" value="0" />
+          <label>power</label><input type="range" id="shot-pow" min="0.3" max="1" step="0.05" value="0.7" />
+          <span class="seg" id="shot-ctx"><button data-c="base" class="on">Baseline</button><button data-c="net">At net</button><button data-c="high">High</button></span>
+          <button class="btn primary" id="do-shot">🎾 Hit</button>
+        </div>
+        <div class="manual grp" id="manual-move" style="gap:8px">
+          <div class="pad">
+            <span></span><button class="btn" data-dx="0" data-dy="1">▲</button><span></span>
+            <button class="btn" data-dx="-1" data-dy="0">◀</button><span></span><button class="btn" data-dx="1" data-dy="0">▶</button>
+            <span></span><button class="btn" data-dx="0" data-dy="-1">▼</button><span></span>
+          </div>
+          <label>sensitivity</label><input type="range" id="move-sens" min="0.4" max="1.2" step="0.05" value="0.85" />
+          <span id="move-sens-v" class="sub" style="color:var(--dim)">0.85</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: live log -->
+  <div class="col right">
+    <h2>Flight recorder <span class="spacer" style="flex:1"></span></h2>
+    <div class="logbar">
+      <label class="sub" style="color:var(--dim)">filter</label>
+      <select id="log-filter">
+        <option value="all">all</option>
+        <option value="warn">⚠ warnings only</option>
+        <option value="serve_strike">serve_strike</option>
+        <option value="serve_result">serve_result</option>
+        <option value="fault">fault</option>
+        <option value="shot">shot</option>
+        <option value="hit">hit</option>
+        <option value="state">state</option>
+        <option value="input">input</option>
+        <option value="point">point</option>
+      </select>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn" id="log-clear" style="padding:4px 9px">clear</button>
+    </div>
+    <div class="scroll" id="log"><div class="empty">The trace streams here as each test plays.</div></div>
+  </div>
+</main>
+
+<script type="module">
+import {
+  CASES, AREAS, serveScenario, shotScenario, movementScenario, COURT, GESTURES,
+} from '../tools/testbed/plan.mjs';
+
+const $ = id => document.getElementById(id);
+const HALF_LEN = COURT.length / 2, HALF_W = COURT.width / 2, HALF_S = COURT.singlesWidth / 2;
+
+// ---------------- canvas + court drawing (top-down) ----------------
+const cv = $('court'), ctx = cv.getContext('2d');
+let view = { scale: 1, cx: 0, cy: 0 };
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const pad = 26;
+  const totalW = COURT.width + 3, totalL = COURT.length + 3;       // a little run-off room
+  view.scale = Math.min((w - pad * 2) / totalW, (h - pad * 2) / totalL);
+  view.cx = w / 2; view.cy = h / 2;
+}
+// world (x across, z along) → pixels. Team 0 (z>0) sits at the BOTTOM (near side).
+const px = (x, z) => [view.cx + x * view.scale, view.cy + z * view.scale];
+
+function drawCourt() {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  // surface
+  const [bx0, bz0] = px(-HALF_W - 1.2, -HALF_LEN - 1.2), [bx1, bz1] = px(HALF_W + 1.2, HALF_LEN + 1.2);
+  ctx.fillStyle = '#15512e'; ctx.fillRect(bx0, bz0, bx1 - bx0, bz1 - bz0);
+  ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(234,246,255,.85)';
+  const line = (x1, z1, x2, z2) => { const [a, b] = px(x1, z1), [c, d] = px(x2, z2); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); };
+  const rect = (x1, z1, x2, z2) => { const [a, b] = px(x1, z1), [c, d] = px(x2, z2); ctx.strokeRect(a, b, c - a, d - b); };
+  // doubles + singles
+  rect(-HALF_W, -HALF_LEN, HALF_W, HALF_LEN);
+  line(-HALF_S, -HALF_LEN, -HALF_S, HALF_LEN); line(HALF_S, -HALF_LEN, HALF_S, HALF_LEN);
+  // baselines already in rect; service lines + centre line
+  line(-HALF_S, -COURT.serviceLine, HALF_S, -COURT.serviceLine);
+  line(-HALF_S, COURT.serviceLine, HALF_S, COURT.serviceLine);
+  line(0, -COURT.serviceLine, 0, COURT.serviceLine);
+  // net
+  ctx.lineWidth = 2.4; ctx.strokeStyle = '#dfe9f5'; line(-HALF_W - .4, 0, HALF_W + .4, 0);
+  ctx.lineWidth = 1.6;
+}
+function drawTargetBox(box) {                          // serve target {dir,xSign}
+  if (!box) return;
+  ctx.save(); ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(74,216,240,.9)'; ctx.lineWidth = 2;
+  const z0 = 0, z1 = box.dir * COURT.serviceLine, x0 = 0, x1 = box.xSign * HALF_S;
+  const [a, b] = px(Math.min(x0, x1), Math.min(z0, z1)), [c, d] = px(Math.max(x0, x1), Math.max(z0, z1));
+  ctx.strokeRect(a, b, c - a, d - b); ctx.restore();
+}
+function drawTrail(trail) {
+  for (let i = 0; i < trail.length; i++) {
+    const t = trail[i], a = (i + 1) / trail.length;
+    const [x, y] = px(t.x, t.z);
+    ctx.beginPath(); ctx.arc(x, y, 2 + t.y * 0.5, 0, 7); ctx.fillStyle = `rgba(232,255,82,${0.08 + a * 0.5})`; ctx.fill();
+  }
+}
+function drawMarkers(markers) {
+  for (const m of markers) {
+    const [x, y] = px(m.x, m.z);
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fillStyle = m.in ? 'rgba(70,209,122,.95)' : 'rgba(255,93,108,.95)'; ctx.fill();
+    ctx.lineWidth = 1.4; ctx.strokeStyle = '#fff'; ctx.stroke();
+  }
+}
+function drawScene(snap, { trail = [], markers = [], box = null } = {}) {
+  drawCourt();
+  drawTargetBox(box);
+  drawTrail(trail);
+  drawMarkers(markers);
+  if (!snap) return;
+  for (const p of snap.players || []) {
+    const [x, y] = px(p.x, p.z);
+    ctx.beginPath(); ctx.arc(x, y, p.human ? 8 : 7, 0, 7);
+    ctx.fillStyle = p.team === 0 ? 'var(--blue)' : '#f0654a'; ctx.fillStyle = p.team === 0 ? '#4ad8f0' : '#f0654a';
+    ctx.fill();
+    if (p.human) { ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff'; ctx.stroke(); }
+  }
+  if (snap.ball) {
+    const [x, y] = px(snap.ball.x, snap.ball.z);
+    const r = 3.5 + Math.max(0, snap.ball.y) * 1.1;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = '#e8ff52'; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.stroke();
+  }
+}
+
+// ---------------- log panel ----------------
+const logEl = $('log'); let logFilter = 'all'; let logEmpty = true;
+function fmt(e) {
+  let d = '';
+  switch (e.type) {
+    case 'state': d = `${e.from} → ${e.to}${e.reason ? ` (${e.reason})` : ''}`; break;
+    case 'input': d = `slot ${e.slot}${e.action ? ` action=${e.action}` : ''}${e.move ? ` move=(${e.move.x},${e.move.y})` : ''}${e.aim != null ? ` aim=${e.aim}` : ''}${e.accepted === false ? ` IGNORED:${e.reason}` : ''}`; break;
+    case 'serve_strike': d = `${e.side} #${e.serveNumber} aim=${e.intendedAim} pow=${e.intendedPower} → predict(${e.predictedLanding.x},${e.predictedLanding.z}) inBox=${e.predictedInBox}`; break;
+    case 'serve_result': d = `#${e.serveNumber} land(${e.landing.x},${e.landing.z}) inBox=${e.inBox}`; break;
+    case 'fault': d = `team ${e.team} #${e.serveNumber} ${e.reason}/${e.detail}`; break;
+    case 'shot': d = `p${e.player} ${e.action} aim=${e.intendedAim} → land(${e.predictedLanding.x},${e.predictedLanding.z})${e.aiError ? ` ai:${e.aiError}` : ''}`; break;
+    case 'hit': d = `p${e.player} ${e.action} rally=${e.rallyLength ?? '-'}`; break;
+    case 'bounce': d = `(${e.pos.x.toFixed(2)},${e.pos.z.toFixed(2)})`; break;
+    case 'point': d = `team ${e.team} ${e.reason} rally=${e.rallyLength}`; break;
+    case 'contradiction': d = `⚠ ${e.what} ${e.detail} land(${e.landing.x},${e.landing.z})`; break;
+    default: d = '';
+  }
+  return d;
+}
+function passesFilter(e) { return logFilter === 'all' ? true : logFilter === 'warn' ? e.level === 'warn' : e.type === logFilter; }
+function pushLog(e) {
+  if (!passesFilter(e)) return;
+  if (logEmpty) { logEl.innerHTML = ''; logEmpty = false; }
+  const div = document.createElement('div');
+  div.className = 'le' + (e.level === 'warn' ? ' warn' : '');
+  div.innerHTML = `<span class="seq">${String(e.seq).padStart(4)}</span> <span class="ty">${e.type}</span> ${fmt(e)}`;
+  logEl.appendChild(div);
+  while (logEl.childElementCount > 500) logEl.removeChild(logEl.firstChild);
+  logEl.parentElement.scrollTop = logEl.parentElement.scrollHeight;
+}
+function clearLog() { logEl.innerHTML = '<div class="empty">The trace streams here as each test plays.</div>'; logEmpty = true; }
+$('log-clear').onclick = clearLog;
+$('log-filter').onchange = e => { logFilter = e.target.value; };
+
+// ---------------- case list ----------------
+const caseEls = new Map();
+function buildList() {
+  const c = $('cases'); c.innerHTML = '';
+  $('plan-count').textContent = `(${CASES.length})`;
+  $('t-tot').textContent = `/ ${CASES.length}`;
+  for (const area of AREAS) {
+    const h = document.createElement('div'); h.className = 'area-h'; h.textContent = area; c.appendChild(h);
+    for (const cs of CASES.filter(x => x.area === area)) {
+      const el = document.createElement('div'); el.className = 'case'; el.dataset.id = cs.id;
+      el.innerHTML = `<div class="ic">○</div><div><div class="nm">${cs.id.split('.')[1] ?? cs.id}</div><div class="ms">${cs.title}</div></div>`;
+      el.onclick = () => { if (!running) runOne(cs); };
+      c.appendChild(el); caseEls.set(cs.id, el);
+    }
+  }
+}
+function setCaseState(id, state, measured) {
+  const el = caseEls.get(id); if (!el) return;
+  el.classList.remove('pass', 'fail', 'run', 'cur');
+  if (state) el.classList.add(state === 'pass' ? 'pass' : state === 'fail' ? 'fail' : 'run');
+  el.querySelector('.ic').textContent = state === 'pass' ? '✓' : state === 'fail' ? '✗' : state === 'run' ? '▶' : '○';
+  if (measured != null) el.querySelector('.ms').textContent = measured;
+}
+function highlight(id) { for (const el of caseEls.values()) el.classList.remove('cur'); const e = caseEls.get(id); if (e) { e.classList.add('cur'); e.scrollIntoView({ block: 'nearest' }); } }
+
+let passN = 0, failN = 0;
+function tally() { $('t-pass').textContent = `${passN}✓`; $('t-fail').textContent = `${failN}✗`; }
+function resetTally() { passN = failN = 0; tally(); for (const id of caseEls.keys()) setCaseState(id, null, CASES.find(c => c.id === id).title); }
+
+// ---------------- playback engine ----------------
+let running = false, rafId = 0, stopReplay = false;
+const speed = () => parseFloat($('speed').value);
+const nextPaint = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+function setOverlay(title, sub, badge) {
+  $('ov-title').innerHTML = title + (badge ? ` <span class="badge ${badge}">${badge.toUpperCase()}</span>` : '');
+  $('ov-sub').textContent = sub || '';
+}
+
+function safeRun(cs) {
+  try { return { ...cs.run(), _ok: true }; }
+  catch (err) { return { pass: false, expected: cs.title, measured: 'threw: ' + err.message, log: null, frames: null }; }
+}
+
+// Detect a bounce in the frame stream (ball drops to near the ground) and tag
+// it in/out by the singles-court bounds; serve target colouring uses inBox too.
+function makeBounceTracker() {
+  let prevY = null;
+  return (snap, markers) => {
+    if (!snap.ball) { prevY = null; return; }
+    const y = snap.ball.y;
+    if (prevY != null && prevY > 0.35 && y <= 0.35) {
+      const inb = Math.abs(snap.ball.x) <= HALF_S + 0.05 && Math.abs(snap.ball.z) <= HALF_LEN + 0.05;
+      markers.push({ x: snap.ball.x, z: snap.ball.z, in: inb });
+    }
+    prevY = y;
+  };
+}
+
+function animateClip(result, box) {
+  return new Promise(resolve => {
+    const frames = result.frames; if (!frames || !frames.length) return resolve();
+    const log = (result.log || []).slice().sort((a, b) => a.seq - b.seq);
+    let li = 0, idx = 0; const trail = [], markers = []; const track = makeBounceTracker();
+    stopReplay = false;
+    function stepFrame() {
+      if (stopReplay) return resolve();
+      const fi = Math.min(Math.floor(idx), frames.length - 1);
+      const snap = frames[fi];
+      if (snap.ball) { trail.push(snap.ball); if (trail.length > 26) trail.shift(); }
+      track(snap, markers);
+      // reveal log entries up to this sim-frame (frames are sampled every 2)
+      const cutoff = fi * 2 + 2;
+      while (li < log.length && (log[li].frame ?? 0) <= cutoff) pushLog(log[li++]);
+      drawScene(snap, { trail, markers, box });
+      idx += speed();
+      if (idx >= frames.length) {
+        drawScene(frames[frames.length - 1], { trail, markers, box });
+        while (li < log.length) pushLog(log[li++]);  // flush any tail
+        return resolve();
+      }
+      rafId = requestAnimationFrame(stepFrame);
+    }
+    stepFrame();
+  });
+}
+
+function boxFromResult(result) {
+  const ss = (result.log || []).find(e => e.type === 'serve_strike');
+  return ss ? ss.targetBox : null;
+}
+
+function record(cs, result) {
+  const st = result.pass ? 'pass' : 'fail';
+  setCaseState(cs.id, st, result.measured);
+  if (result.pass) passN++; else failN++; tally();
+}
+
+async function runOne(cs) {
+  running = true; setControls();
+  resetActiveCase();
+  highlight(cs.id); setCaseState(cs.id, 'run', 'running…');
+  setOverlay(cs.title, 'running…', 'run');
+  await nextPaint();
+  const result = safeRun(cs);
+  record(cs, result);
+  setOverlay(cs.title, `expected: ${result.expected} · got: ${result.measured}`, result.pass ? 'pass' : 'fail');
+  if (result.frames && result.frames.length) await animateClip(result, boxFromResult(result));
+  else if (result.log) { for (const e of result.log.slice(-40)) pushLog(e); }
+  running = false; setControls();
+}
+
+async function runAll() {
+  running = true; stopReplay = false; setControls();
+  resetTally(); clearLog();
+  for (const cs of CASES) {
+    if (!running) break;
+    highlight(cs.id); setCaseState(cs.id, 'run', 'running…');
+    setOverlay(cs.title, 'running…', 'run');
+    await nextPaint();
+    const result = safeRun(cs);
+    record(cs, result);
+    setOverlay(cs.title, `expected: ${result.expected} · got: ${result.measured}`, result.pass ? 'pass' : 'fail');
+    if (result.frames && result.frames.length) await animateClip(result, boxFromResult(result));
+    else { if (result.log) for (const e of result.log.slice(-12)) pushLog(e); await new Promise(r => setTimeout(r, 220)); }
+  }
+  const done = running; running = false; setControls();
+  if (done) setOverlay(`Sweep complete — ${passN}✓ ${failN}✗`, failN ? 'See the red cases on the left and the ⚠ entries in the log.' : 'All clear. No bugs found.', failN ? 'fail' : 'pass');
+}
+
+function stopRun() { running = false; stopReplay = true; cancelAnimationFrame(rafId); setControls(); setOverlay('Stopped.', ''); }
+function resetActiveCase() { stopReplay = true; cancelAnimationFrame(rafId); }
+
+function setControls() {
+  $('run-all').disabled = running; $('stop').disabled = !running;
+  for (const b of document.querySelectorAll('#manual-serve button, #manual-shot button, #manual-move button, #do-serve, #do-shot')) b.disabled = running;
+}
+
+$('run-all').onclick = runAll;
+$('stop').onclick = stopRun;
+$('speed').oninput = e => { $('speed-v').textContent = e.target.value + '×'; };
+
+// ---------------- manual mode ----------------
+let mode = 'auto';
+function setMode(m) {
+  mode = m;
+  $('tab-auto').classList.toggle('on', m === 'auto'); $('tab-manual').classList.toggle('on', m === 'manual');
+  for (const el of document.querySelectorAll('.manual')) el.classList.toggle('on', m === 'manual');
+  for (const el of document.querySelectorAll('.auto-ctl')) el.style.display = m === 'auto' ? 'flex' : 'none';
+}
+$('tab-auto').onclick = () => setMode('auto');
+$('tab-manual').onclick = () => setMode('manual');
+
+function seg(id, fn) {
+  const wrap = $(id);
+  wrap.querySelectorAll('button').forEach(b => b.onclick = () => {
+    wrap.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); if (fn) fn(b);
+  });
+  return () => wrap.querySelector('button.on');
+}
+const serveSide = seg('serve-side'); const shotFam = seg('shot-fam'); const shotCtx = seg('shot-ctx');
+
+async function playManual(result, label, box) {
+  if (running) return;
+  running = true; setControls(); resetActiveCase(); clearLog();
+  for (const el of caseEls.values()) el.classList.remove('cur');
+  setOverlay(label, result.measured ? `result: ${result.measured}` : '', null);
+  await nextPaint();
+  await animateClip(result, box ?? boxFromResult(result));
+  running = false; setControls();
+}
+
+$('do-serve').onclick = () => {
+  const side = serveSide().dataset.side, aim = +$('serve-aim').value, power = +$('serve-pow').value;
+  const r = serveScenario({ side, aim, power });
+  playManual(r, `Manual serve — ${side}, aim ${aim}, power ${power}`, boxFromResult(r));
+};
+$('do-shot').onclick = () => {
+  const fam = shotFam().dataset.f, aim = +$('shot-aim').value, power = +$('shot-pow').value, c = shotCtx().dataset.c;
+  const pos = c === 'net' ? { playerZ: 2.0, ballY: 1.2, ballZ: 1.4 } : c === 'high' ? { playerZ: 3, ballY: 2.3, ballZ: 2.4 } : {};
+  const r = shotScenario({ action: fam, aim, power, ...pos });
+  playManual(r, `Manual ${fam} — aim ${aim}, power ${power}${c !== 'base' ? `, ${c}` : ''} → ${r.struckAction}`);
+};
+document.querySelectorAll('#manual-move .pad button').forEach(b => b.onclick = () => {
+  const dx = +b.dataset.dx, dy = +b.dataset.dy, sens = +$('move-sens').value;
+  const r = movementScenario({ dx, dy, sens, seconds: 1.2 });
+  playManual(r, `Manual move (${dx},${dy}) sens ${sens} → top ${r.topSpeed.toFixed(2)} m/s`);
+});
+$('move-sens').oninput = e => $('move-sens-v').textContent = e.target.value;
+
+// ---------------- boot ----------------
+window.addEventListener('resize', () => { resize(); drawCourt(); });
+buildList(); resize(); drawCourt(); setMode('auto');
+</script>
+</body>
+</html>

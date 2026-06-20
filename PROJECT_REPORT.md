@@ -192,13 +192,15 @@ Players can't look down at their phone mid-rally, so there are no buttons to
 hunt for. The right half of the screen is a swipe surface, and the swipe
 *vector* does everything at once:
 
-- **Vertical component picks the shot**: swipe up = lob, down = slice (a soft
-  drop shot), flat/short = drive.
+- **Shape picks the shot**: a tap = lob (over a net-rusher), swipe up = a drive
+  (a slower swipe is heavy topspin, a faster one a flat bullet), swipe down =
+  slice (a soft drop shot).
 - **Horizontal component aims**: left/right placement.
 - **Speed sets power**: a fast swipe hits harder.
 
-So a quick diagonal flick down-and-right is "a slice, placed to the right."
-A tap is a controlled drive up the middle. Smash and volley are applied
+So a quick diagonal flick down-and-right is "a slice, placed to the right," and
+an up-and-right swipe is "a drive, placed to the right." A tap lobs up the
+middle. Smash and volley are applied
 automatically by the engine (a high sitter is smashed; a ball met at the net
 is volleyed), because the phone has no ball-height information and shouldn't.
 The left half is a *floating* joystick — touch anywhere and it appears under

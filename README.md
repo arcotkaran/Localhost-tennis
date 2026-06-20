@@ -17,15 +17,21 @@ npm install
 npm start
 ```
 
-The console prints a **4-digit room code** and two URLs:
+The console prints a **4-digit room code** and the URLs:
 
-- **TV view** — open on the host machine, fullscreen it on the TV.
+- **TV / Host** — open `http://<lan-ip>:<port>/host` (or `/tv`) on whatever
+  screen you want to play on: the laptop wired to the TV, a smart-TV browser, a
+  spare tablet. **Any device on the Wi-Fi can be the TV** — the first to open
+  the URL becomes it, and opening it on another device moves the TV there (the
+  old one shows a "reload to take it back" notice). Fullscreen it (F11). The
+  machine running `npm start` does not have to be the TV.
 - **Phones** — each player types a name, enters the room code, and gets a
   landscape gamepad: a floating movement joystick on the left, swipe-to-hit
-  on the right (the swipe angle aims, its speed powers, its shape picks the
-  shot), with haptic feedback. Serving is two-step — tap to toss, swipe to
-  strike. A phone can even pick the settings and **start the match itself**,
-  so the laptop never has to be touched at the menu.
+  on the right — tap to lob, swipe up to drive (topspin or flat by speed),
+  swipe down to slice, with the swipe angle aiming and its speed setting power
+  — plus haptic feedback. Serving is two-step — tap to toss, swipe to strike.
+  A phone can even pick the settings and **start the match itself**, so the
+  laptop never has to be touched at the menu.
 
 If a phone drops mid-match the game pauses and snapshots the exact state;
 reopening the page reconnects to the same slot and resumes losslessly. Player
@@ -83,9 +89,38 @@ npm run test:phase17   # player names: sanitize, team labels, propagation
 npm run test:phase18   # end-game: quit to menu from TV or phone
 npm run test:phase19   # serve faults & double faults
 npm run test:phase20   # tap-to-toss two-step serve
+npm run test:phase21   # flight recorder + shared testbed plan
 ```
 
-211 tests across 20 gates, all passing (`npm test`).
+232 tests across 21 gates, all passing (`npm test`).
+
+## Test Lab & flight recorder
+
+The game ships with a built-in test setup that drives the **real** `GameDirector`
+through the same gesture → input path a phone uses, with a structured **flight
+recorder** you can read to diagnose bugs.
+
+- **Flight recorder** — pass `log: true` to a `GameDirector` (or share a
+  `GameLog`) and it captures a timestamped, structured trace of everything: state
+  transitions, every input, each shot/serve's *intended vs. actual* outcome, and
+  bounces/faults/points. It even **flags contradictions** (e.g. a serve that
+  bounced in the box yet was ruled fault) at `warn` level. Off by default — zero
+  cost in normal play. Source: [`shared/game-log.js`](shared/game-log.js).
+- **`npm run testbed`** — runs the canonical shared plan
+  ([`tools/testbed/plan.mjs`](tools/testbed/plan.mjs)) over every shot, serve,
+  movement and full-match flow, prints a ✓/✗ ticker, writes `BUGREPORT.md`
+  (severity + expected-vs-measured + the trace slice explaining each failure),
+  and dumps `logs/trace-*.jsonl` for any failure.
+- **Live 2D Test Lab** — `npm start`, then open **`/lab`** on the host. A
+  watchable top-down court animates every test case (ball trails, green/red
+  in-out markers, the dashed serve-target box) with a live pass/fail list and the
+  **live flight-recorder log** streaming alongside. **Run all** for the full
+  sweep, or **Manual** to fire any single shot/serve/move with aim/power/
+  sensitivity sliders. Runs the same plan as the headless runner.
+- **Watch a real 3D match** — open **`/host?bot`** for a hands-free auto-played
+  match on the cinematic TV, or run
+  [`node tools/bot-phone.mjs`](tools/bot-phone.mjs) to drive bot-phone(s) over the
+  real WebSocket path (server relay + lag compensation).
 
 ## Design constraints
 

@@ -7,8 +7,18 @@
 // real body language. Face parts (eyes, brows, mouth) sit on the head and
 // are driven by the EmotionEngine's expressionFor().
 
-const TEAM_KITS = [0x4ad8f0, 0xf04a4a]; // blue / red — torso stays team-colored for side ID
-const TEAM_SHORTS = [0x16384a, 0x4a1616];
+// Each team has a colour FAMILY (cool blues vs warm reds) so sides stay
+// readable at a glance, but the two doubles partners get distinct shades within
+// it so all four players on court are individually identifiable. variant 0 is
+// the classic team colour (used by singles / 1v1, so nothing there changes).
+const TEAM_KITS = [
+  [0x4ad8f0, 0x2f6cf0], // team 0: cyan, royal blue
+  [0xf04a4a, 0xf0962a], // team 1: red, orange
+];
+const TEAM_SHORTS = [
+  [0x16384a, 0x142a5a],
+  [0x4a1616, 0x4a2e16],
+];
 
 // Per-character appearance so each icon is recognizable at capsule scale:
 // skin tone, hair color, build (girth) + height, signature headgear, kit
@@ -27,14 +37,17 @@ const APPEARANCE = {
 };
 const DEFAULT_APPEARANCE = { skin: 0xd9a06b, hair: 0x2a1d12, headgear: 'none', headgearColor: 0, build: 1.0, height: 1.0, shoe: 0xfafafa, wristband: 0xdddddd, sleeveless: false };
 
-export function playerModelSpec(character, team) {
+export function playerModelSpec(character, team, variant = 0, colorOverride = null) {
   const ap = APPEARANCE[character?.id] ?? DEFAULT_APPEARANCE;
-  const kit = TEAM_KITS[team];
+  // A 2v2 player can pick a shirt colour; it overrides the team-family kit for
+  // the shirt + sleeves. Shorts stay team-tinted so the side is still readable.
+  const kit = (typeof colorOverride === 'number' ? colorOverride : null) ?? TEAM_KITS[team][variant] ?? TEAM_KITS[team][0];
+  const shortsColor = TEAM_SHORTS[team][variant] ?? TEAM_SHORTS[team][0];
   const skin = ap.skin;
   const b = ap.build;
   const parts = [
     { name: 'torso', geo: 'capsule', size: [0.26 * b, 0.5], color: kit, pos: [0, 1.08, 0] },
-    { name: 'shorts', geo: 'capsule', size: [0.24 * b, 0.18], color: TEAM_SHORTS[team], pos: [0, 0.78, 0] },
+    { name: 'shorts', geo: 'capsule', size: [0.24 * b, 0.18], color: shortsColor, pos: [0, 0.78, 0] },
     // Neck pivot carries the head + face + hair + headgear for tilts and shakes.
     { name: 'head', geo: 'sphere', size: [0.16], color: skin, pos: [0, 1.62, 0], pivot: [0, 1.5, 0] },
     { name: 'eyeL', geo: 'sphere', size: [0.022], color: 0x111111, pos: [-0.055, 1.645, 0.135], parent: 'head' },

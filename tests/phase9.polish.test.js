@@ -95,6 +95,17 @@ test('each roster character yields a DISTINCT, recognizable model', () => {
   }
   assert.equal(fingerprints.size, ROSTER.length, 'every roster character looks different');
 
+  // Doubles: partners share a team colour FAMILY but wear distinct kits, so all
+  // four players on court are individually identifiable. variant 0 is unchanged
+  // (singles / 1v1 keep the classic team colour).
+  const torso = (team, variant) => playerModelSpec(ROSTER[0], team, variant).parts.find(p => p.name === 'torso').color;
+  assert.equal(torso(0, 0), 0x4ad8f0, 'team 0 variant 0 is the classic kit (unchanged)');
+  assert.equal(torso(1, 0), 0xf04a4a, 'team 1 variant 0 is the classic kit (unchanged)');
+  assert.notEqual(torso(0, 0), torso(0, 1), 'team-0 partners have distinct shirts');
+  assert.notEqual(torso(1, 0), torso(1, 1), 'team-1 partners have distinct shirts');
+  const fourKits = new Set([torso(0, 0), torso(0, 1), torso(1, 0), torso(1, 1)]);
+  assert.equal(fourKits.size, 4, 'all four players in 2v2 are visually distinct');
+
   const spec = id => playerModelSpec(ROSTER.find(p => p.id === id), 0);
 
   // Signature gear — the things that make each player recognizable.

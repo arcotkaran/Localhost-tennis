@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
-import { createTennisServer, isLoopback } from '../server/game-server.js';
+import { createTennisServer, TennisServer, isLoopback } from '../server/game-server.js';
 import { MSG, encode, decode } from '../shared/protocol.js';
 
 function open(port) {
@@ -171,24 +171,87 @@ test('mid-match leavers keep their seat (reconnect), but lobby return purges the
   }
 });
 
-test('only a loopback connection can register as the TV host', async () => {
+test('any LAN device can claim the TV/host role, and the latest claim wins', () => {
+  // isLoopback still exists — it now only gates the dev-only debug-frame upload.
   assert.equal(isLoopback('127.0.0.1'), true);
   assert.equal(isLoopback('::1'), true);
   assert.equal(isLoopback('::ffff:127.0.0.1'), true);
   assert.equal(isLoopback('192.168.0.9'), false);
 
+  // Constructor sets roomCode + hostWs=null; no real socket needed for routing.
+  const server = new TennisServer({ port: 0 });
+  const fakeWs = ip => ({ _socket: { remoteAddress: ip }, readyState: 1, sent: [], send(m) { this.sent.push(decode(m)); } });
+
+  // A device on the LAN opens /host and registers — it becomes the TV.
+  const lanA = fakeWs('192.168.0.9');
+  server.onMessage(lanA, { type: MSG.HOST_REGISTER, code: server.roomCode });
+  assert.equal(server.hostWs, lanA, 'a LAN device can be the host (no loopback requirement)');
+
+  // A second device opens /host → it takes over; the first is told to stand down.
+  const lanB = fakeWs('192.168.0.22');
+  server.onMessage(lanB, { type: MSG.HOST_REGISTER, code: server.roomCode });
+  assert.equal(server.hostWs, lanB, 'the latest claim wins (takeover)');
+  assert.ok(lanA.sent.some(m => m.type === MSG.HOST_SUPERSEDED), 'the bumped host is told it was superseded');
+
+  // A stale tab from a previous run (a non-matching code) cannot grab the role.
+  const stale = fakeWs('192.168.0.40');
+  server.onMessage(stale, { type: MSG.HOST_REGISTER, code: server.roomCode + '9' });
+  assert.equal(server.hostWs, lanB, 'a mismatched code is ignored (stale-tab guard)');
+
+  // No code is required to host (the takeover policy) — and that also supersedes.
+  const noCode = fakeWs('192.168.0.55');
+  server.onMessage(noCode, { type: MSG.HOST_REGISTER });
+  assert.equal(server.hostWs, noCode, 'no code needed to claim the TV');
+  assert.ok(lanB.sent.some(m => m.type === MSG.HOST_SUPERSEDED), 'the previous host was superseded again');
+
+  // The host disconnecting frees the role for the next device.
+  server.onClose(noCode);
+  assert.equal(server.hostWs, null, 'host disconnect clears the role');
+});
+
+test('the /host and /tv URLs redirect any device to the TV renderer page', async () => {
+  const server = await createTennisServer({ port: 0, staticRoot: process.cwd() });
+  try {
+    for (const path of ['/host', '/tv']) {
+      const redir = await fetch(`http://127.0.0.1:${server.port}${path}`, { redirect: 'manual' });
+      assert.equal(redir.status, 302, `${path} redirects`);
+      assert.equal(redir.headers.get('location'), '/client_host/index.html', `${path} → the host page`);
+    }
+    // Following it actually serves the real TV HTML (not a 404 / dead page).
+    const page = await fetch(`http://127.0.0.1:${server.port}/host`);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.ok(html.includes('<canvas') || html.includes('id="menu"'), 'the TV page is served at /host');
+  } finally {
+    await server.stop();
+  }
+});
+
+test('a LAN socket registers as host; a later device supersedes it (real sockets)', async () => {
   const server = await createTennisServer({ port: 0 });
   try {
-    // A LAN phone that read the room code off the TV tries to impersonate the host.
-    const lanWs = { _socket: { remoteAddress: '192.168.0.9' }, readyState: 1, send() {} };
-    server.onMessage(lanWs, { type: MSG.HOST_REGISTER, code: server.roomCode });
-    assert.notEqual(server.hostWs, lanWs, 'a remote phone cannot become the host');
-    assert.equal(server.hostWs, null);
+    const hostA = await open(server.port);
+    hostA.send(encode(MSG.HOST_REGISTER, { code: server.roomCode }));
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(server.hostWs?.readyState, 1, 'the first device became the host');
 
-    // The real TV, on the host machine (loopback), registers fine.
-    const tvWs = { _socket: { remoteAddress: '127.0.0.1' }, readyState: 1, send() {} };
-    server.onMessage(tvWs, { type: MSG.HOST_REGISTER, code: server.roomCode });
-    assert.equal(server.hostWs, tvWs, 'the loopback TV registers');
+    const bumped = nextOfType(hostA, MSG.HOST_SUPERSEDED);
+    const hostB = await open(server.port);
+    hostB.send(encode(MSG.HOST_REGISTER, { code: server.roomCode }));
+    await bumped; // hostA is told it was superseded by hostB
+    await new Promise(r => setTimeout(r, 30));
+
+    // The NEW host drives game state (server.atMenu reflects its LOBBY_STATE)…
+    hostB.send(encode(MSG.LOBBY_STATE, { atMenu: false }));
+    await new Promise(r => setTimeout(r, 40));
+    assert.equal(server.atMenu, false, 'the new host can drive game state');
+
+    // …and the bumped host can no longer drive it (it is not hostWs anymore).
+    hostA.send(encode(MSG.LOBBY_STATE, { atMenu: true }));
+    await new Promise(r => setTimeout(r, 40));
+    assert.equal(server.atMenu, false, 'the superseded host is ignored');
+
+    for (const ws of [hostA, hostB]) ws.close();
   } finally {
     await server.stop();
   }

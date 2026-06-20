@@ -4,6 +4,10 @@ node_modules/
 # Dev-only render verification output (POSTed canvas frames)
 .debug/
 
+# Testbed flight-recorder traces + generated bug report (regenerated on demand)
+logs/
+BUGREPORT.md
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

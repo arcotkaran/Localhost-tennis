@@ -15,8 +15,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const candidates = rankLanAddresses(networkInterfaces());
 const ip = candidates[0]?.address ?? 'localhost';
 
-async function startVerified(preferredPort) {
-  for (const port of [preferredPort, 0]) {
+async function startVerified(ports) {
+  for (const port of ports) {
     const server = await createTennisServer({ port, staticRoot: root, lanHost: ip });
     try {
       const res = await fetch(`http://127.0.0.1:${server.port}/shared/protocol.js`);
@@ -27,20 +27,29 @@ async function startVerified(preferredPort) {
   throw new Error('could not bind a working port');
 }
 
-const server = await startVerified(Number(process.env.PORT) || 8080);
+// Try stable, friendly ports in order before giving up to an OS-assigned one,
+// so the URL stays the SAME across restarts (key for a bookmarkable host URL).
+// An explicit PORT= always wins; 8080 is conventional but is share-bound on
+// some Windows boxes, so a couple of high ports back it up. Set PORT to pin it.
+const preferred = Number(process.env.PORT) || 8080;
+const server = await startVerified([preferred, 7777, 51123, 0]);
 
+const hostUrl = `http://${ip}:${server.port}/host`;
 console.log('');
 console.log('  ┌──────────────────────────────────────────────┐');
 console.log('  │            LOCAL TENNIS — READY              │');
 console.log('  ├──────────────────────────────────────────────┤');
 console.log(`  │  ROOM CODE:   ${server.roomCode}                           │`);
-console.log(`  │  TV view:     http://localhost:${server.port}/client_host/index.html`);
+console.log(`  │  TV / Host:   ${hostUrl}  (open on ANY device on the Wi-Fi)`);
+console.log(`  │  On this PC:  http://localhost:${server.port}/host`);
 console.log(`  │  Phones:      http://${ip}:${server.port}/  (same Wi-Fi)`);
 console.log('  └──────────────────────────────────────────────┘');
+console.log('  The first device to open the TV/Host URL becomes the TV; opening it');
+console.log('  on another device moves the TV there. Phones just open the Phones URL.');
 if (candidates.length > 1) {
-  console.log('  If phones cannot connect, try these addresses instead:');
+  console.log('  If a device cannot connect, try these addresses instead:');
   for (const c of candidates.slice(1)) {
-    console.log(`    http://${c.address}:${server.port}/  (${c.name})`);
+    console.log(`    http://${c.address}:${server.port}/  (phones)  ·  /host (TV)   (${c.name})`);
   }
 }
 console.log('');

@@ -6,7 +6,7 @@
 // Both work at once (two thumbs) via per-touch identifiers. Coordinates are
 // natural landscape — we never CSS-rotate, so a visual "up" swipe is up.
 
-import { MSG, encode, decode } from '../../shared/protocol.js';
+import { MSG, encode, decode, SHIRT_COLORS } from '../../shared/protocol.js';
 import { PHONE_CHEAT_SHEET } from '../../shared/howto.js';
 import { gestureToShot } from '../../shared/gestures.js';
 import { decideOrientation, tryNativeLock, watchOrientation, ORIENT } from './orientation.js';
@@ -23,6 +23,7 @@ const mapper = new InputMapper();
 let ws = null;
 let hasJoined = false;
 let pingTimer = null;
+let autoCode = null;   // room code from the QR (?code) or a prior session — lets us skip code entry
 
 let playerId = localStorage.getItem('tennis_player_id');
 if (!playerId) {
@@ -68,8 +69,12 @@ function connect(code) {
         startPingLoop();
         break;
       case MSG.JOIN_ERROR: {
-        const message = msg.reason === 'room_full' ? 'Room is full (4 players max)' : 'Wrong code — check the TV';
-        if (msg.reason === 'bad_code') { localStorage.removeItem('tennis_room_code'); hasJoined = false; }
+        const message = msg.reason === 'room_full' ? 'Room is full — 4 players max' : 'Wrong code — scan the QR on the TV';
+        if (msg.reason === 'bad_code') {
+          // A stale QR/stored code (e.g. the server restarted) — fall back to
+          // manual entry so they can read the fresh code off the TV.
+          localStorage.removeItem('tennis_room_code'); hasJoined = false; revealCodeEntry();
+        }
         showConnectScreen(message);
         break;
       }
@@ -83,12 +88,17 @@ function connect(code) {
         break;
       }
       case MSG.GAME_PAUSED:
+        // Disconnect pause: someone dropped. You resume by REJOINING, not a button,
+        // so hide Resume (no AI-takeover — wait-for-rejoin).
         $('pause-text').textContent = 'Game paused — waiting for a player to reconnect…';
+        $('resume-btn').classList.remove('show');
         $('pause-overlay').style.display = 'flex';
         break;
       case MSG.GAME_RESUMED: $('pause-overlay').style.display = 'none'; break;
       case MSG.PAUSE_STATE:
-        $('pause-text').textContent = '⏸ Paused — tap pause on any phone or the TV to resume';
+        // Deliberate (user) pause: any phone or the TV can resume.
+        $('pause-text').textContent = '⏸ Paused';
+        $('resume-btn').classList.toggle('show', !!msg.paused);
         $('pause-overlay').style.display = msg.paused ? 'flex' : 'none';
         break;
       case MSG.LOBBY_STATE:
@@ -190,7 +200,7 @@ function endSwipe(t) {
   swipeTouchId = null;
   swipeStart = null;
   const shot = gestureToShot({ dx, dy, durationMs });
-  send(mapper.mapAction(shot.action, joystick.value, shot.aimX));
+  send(mapper.mapAction(shot.action, joystick.value, shot.aimX, shot.power));
   haptics.trigger(shot.action === 'smash' ? 'powerSmash' : 'standardHit');
   flashShot(shot.action);
 }
@@ -258,23 +268,62 @@ nameInput.addEventListener('input', () => setName(nameInput.value));
 nameEdit.addEventListener('input', () => setName(nameEdit.value));
 
 // ---------- connect screen ----------
+// QR-FIRST JOIN: the TV QR carries ?code, so a player never types a code. A
+// returning/named player joins with zero taps; a first-timer just enters a name.
+// Manual code entry stays as a fallback when no code is available (no QR scan).
+function revealCodeEntry() {
+  autoCode = null;
+  $('code-input').style.display = '';
+  $('join-btn').textContent = 'JOIN';
+}
 $('join-btn').addEventListener('click', () => {
   setName(nameInput.value); // capture the latest name before connecting
-  const code = $('code-input').value.trim();
-  if (!/^\d{4}$/.test(code)) { $('status').textContent = 'Enter the 4-digit code on the TV'; return; }
+  const code = autoCode ?? $('code-input').value.trim();
+  if (!/^\d{4}$/.test(code)) { $('status').textContent = 'Scan the QR on the TV (or type the 4-digit code)'; return; }
   $('status').textContent = 'Connecting…';
   connect(code);
 });
 $('code-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('join-btn').click(); });
 
+// On load, resolve a code from the QR (?code) or a prior session; if found, skip
+// the code box and either auto-join (we know the name) or just ask for a name.
+(function autoJoinInit() {
+  const fromUrl = new URLSearchParams(location.search).get('code');
+  const stored = localStorage.getItem('tennis_room_code');
+  const code = [fromUrl, stored].find(c => c && /^\d{4}$/.test(c)) ?? null;
+  if (!code) return;                              // no code anywhere → show the manual form
+  autoCode = code;
+  $('code-input').style.display = 'none';         // no typing needed
+  if (playerName) {
+    $('status').textContent = 'Connecting…';
+    connect(code);                                // returning/named player → straight in
+  } else {
+    $('join-btn').textContent = 'PLAY ▶';
+    $('status').textContent = 'Enter your name, then tap PLAY';
+    nameInput.focus();
+  }
+})();
+
 // ---------- how to play ----------
 $('help-list').innerHTML = PHONE_CHEAT_SHEET
   .map(([control, what]) => `<b>${control}</b><span>${what}</span>`).join('');
+const closeHelp = () => { $('help-overlay').style.display = 'none'; };
 $('help-btn').addEventListener('click', () => { $('help-overlay').style.display = 'flex'; });
-$('help-close').addEventListener('click', () => { $('help-overlay').style.display = 'none'; });
+$('help-close').addEventListener('click', closeHelp);     // "GOT IT" at the bottom
+$('help-x').addEventListener('click', closeHelp);          // always-visible corner ✕
+$('help-overlay').addEventListener('click', e => { if (e.target === $('help-overlay')) closeHelp(); }); // tap the backdrop
 
-// ---- pause (any phone can pause; the TV decides and echoes the state) ----
+// ---- fullscreen toggle (Android/desktop; a safe no-op where unsupported, e.g. iOS Safari) ----
+$('fullscreen-btn').addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement) { await document.exitFullscreen?.(); }
+    else if (env.requestFullscreen) { await env.requestFullscreen(); tryNativeLock(env); } // re-assert landscape lock
+  } catch { /* unsupported (iOS) — ignore */ }
+});
+
+// ---- pause/resume (any phone can toggle; the TV decides and echoes the state) ----
 $('pause-btn').addEventListener('click', () => send(encode(MSG.PAUSE_REQUEST, {})));
+$('resume-btn').addEventListener('click', () => send(encode(MSG.PAUSE_REQUEST, {})));
 
 // ---- end match (from the pause overlay): ask the TV to quit to the menu ----
 $('end-match-btn').addEventListener('click', () => send(encode(MSG.END_MATCH, {})));
@@ -294,6 +343,31 @@ wireStartChoice('sp-mode', 'mode');
 wireStartChoice('sp-surface', 'surface');
 wireStartChoice('sp-format', 'format');
 wireStartChoice('sp-difficulty', 'difficulty', parseFloat);
+
+// ---- 2v2 team + shirt picker (only shown when 2v2 is selected) ----
+const teamChoice = { team: null, color: null };
+$('sp-shirt').insertAdjacentHTML('beforeend', SHIRT_COLORS
+  .map(c => `<button class="sw" data-color="${c}" style="background:${c}" aria-label="shirt colour"></button>`).join(''));
+function sendTeamChoice() {
+  if (teamChoice.team == null) return;
+  send(encode(MSG.TEAM_CHOICE, { team: teamChoice.team, color: teamChoice.color }));
+}
+$('sp-team').addEventListener('click', e => {
+  const b = e.target.closest('[data-team]'); if (!b) return;
+  $('sp-team').querySelectorAll('.sp-choice').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel'); teamChoice.team = Number(b.dataset.team); sendTeamChoice();
+});
+$('sp-shirt').addEventListener('click', e => {
+  const b = e.target.closest('[data-color]'); if (!b) return;
+  $('sp-shirt').querySelectorAll('.sw').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel'); teamChoice.color = b.dataset.color; sendTeamChoice();
+});
+function update2v2Rows() {
+  const show = launchCfg.mode === '2v2';
+  for (const el of document.querySelectorAll('.sp-2v2')) el.style.display = show ? 'flex' : 'none';
+}
+$('sp-mode').addEventListener('click', update2v2Rows);
+update2v2Rows();
 
 function showStartPanel(show) {
   $('startpanel').classList.toggle('show', show && hasJoined);

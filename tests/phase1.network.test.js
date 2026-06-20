@@ -193,6 +193,17 @@ test('lag spike cannot reorder a player\'s inputs', () => {
   assert.equal(ordered[0].input.action, 'smash');
 });
 
+test('the lag buffer preserves a swipe\'s full payload (aim, power, sens)', () => {
+  const lag = new LagCompensator();
+  lag.addPingSample('a', 0, 0, 4);
+  // A reordered swing must keep its placement, pace AND sensitivity, not just
+  // move/action — otherwise a lag spike silently softens or mis-aims the shot.
+  const input = { move: { x: 0.1, y: -0.2 }, action: 'slice', aim: 0.7, power: 0.9, sens: 0.6 };
+  lag.submit('a', 1, 100, input);
+  const [ev] = lag.drain(10_000);
+  assert.deepEqual(ev.input, input, 'aim, power and sens survive the buffer intact');
+});
+
 test('inputs from 4 players interleave in true event-time order across jitter', () => {
   const lag = new LagCompensator();
   const players = ['a', 'b', 'c', 'd'];
@@ -288,7 +299,7 @@ test('every script and module either page references actually loads (no dead JOI
 
 // ---------- room-code handoff to the TV view ----------
 
-test('host machine can fetch the room code via /api/info (loopback only)', async () => {
+test('the host page can fetch the room code via /api/info', async () => {
   const s = await createTennisServer({ port: 0, staticRoot: process.cwd() });
   try {
     const res = await fetch(`http://127.0.0.1:${s.port}/api/info`);
@@ -301,7 +312,7 @@ test('host machine can fetch the room code via /api/info (loopback only)', async
   }
 });
 
-test('phones on the LAN are refused the room code — they must read the TV', async () => {
+test('any device on the LAN can fetch /api/info (any device may now be the TV)', async () => {
   const s = await createTennisServer({ port: 0, staticRoot: process.cwd() });
   try {
     const lanIp = rankLanAddresses(networkInterfaces())[0]?.address;
@@ -310,11 +321,11 @@ test('phones on the LAN are refused the room code — they must read the TV', as
     try {
       res = await fetch(`http://${lanIp}:${s.port}/api/info`);
     } catch {
-      return; // adapter unreachable from itself — the loopback gate still holds
+      return; // adapter unreachable from itself — can't probe here
     }
-    assert.equal(res.status, 403, 'non-loopback client must be refused');
+    assert.equal(res.status, 200, 'a LAN device gets the room code so it can host');
     const body = await res.json();
-    assert.ok(!('roomCode' in body), 'room code must not leak to LAN clients');
+    assert.equal(body.roomCode, s.roomCode, 'the room code reaches the LAN host page');
   } finally {
     await s.stop();
   }

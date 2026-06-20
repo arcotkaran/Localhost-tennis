@@ -21,9 +21,11 @@ export class InputMapper {
     });
   }
 
-  // aim ∈ [-1, 1] is the swipe's horizontal placement (separate from the
-  // movement joystick). move is kept for back-compat / fallback aim.
-  mapAction(action, move = { x: 0, y: 0 }, aim = null) {
+  // aim ∈ [-1, 1] is the swipe's horizontal placement and power ∈ [0, 1] is the
+  // swipe's speed-derived pace (both separate from the movement joystick). move
+  // is kept for back-compat / fallback aim; aim and power stay null when omitted
+  // so older callers keep working.
+  mapAction(action, move = { x: 0, y: 0 }, aim = null, power = null) {
     if (!ACTIONS.includes(action)) {
       throw new Error(`unknown action "${action}" — must be one of ${ACTIONS.join(', ')}`);
     }
@@ -33,6 +35,7 @@ export class InputMapper {
       move: { x: round3(move.x), y: round3(move.y) },
       action,
       aim: aim == null ? null : round3(aim),
+      power: power == null ? null : round3(power),
     });
   }
 }

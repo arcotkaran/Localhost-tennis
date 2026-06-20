@@ -10,6 +10,7 @@ import { Ball, PlayerBody, SURFACES, COURT, BALL, G } from './physics.js';
 import { MatchScore } from './scoring.js';
 import { AIPlayer, mulberry32 } from './ai.js';
 import { applyNetContext } from './gestures.js';
+import { GameLog } from './game-log.js';
 
 export const SWING_WINDOW = 0.45;   // seconds a button press stays "armed"
 export const REACH_X = 1.7;         // lateral reach (m)
@@ -22,6 +23,9 @@ const SHOT_PROFILES = {
   // Slice is a SOFT DROP SHOT: slow, light backspin, lands short — it must
   // stay in the court (it used to float long and sail out).
   slice:   { speed: 15, lift: 4.2, spin: -130 },
+  // Lob is a high defensive arc (the phone's TAP shot): tall enough to clear a
+  // net-rusher, slow enough that the human depth clamp keeps it inside the
+  // baseline rather than sailing long.
   lob:     { speed: 16, lift: 9.5, spin: -80 },
   smash:   { speed: 42, lift: 1.8, spin: 60 },
   volley:  { speed: 24, lift: 4.2, spin: 0 },
@@ -44,12 +48,17 @@ export const TOSS_STRIKE_DELAY = 0.45; // AI/fallback strikes this long after th
 export const HUMAN_TOSS_WINDOW = 1.4;  // a human who tosses but never swipes is auto-struck (anti-softlock)
 
 export class GameDirector {
-  constructor({ mode = '1v1', surface = 'hard', bestOf = 3, characters = [], seed = 42, difficulty = 0.7 } = {}) {
+  constructor({ mode = '1v1', surface = 'hard', bestOf = 3, characters = [], seed = 42, difficulty = 0.7, log = false, slotPlayers = null } = {}) {
     this.mode = mode;
     this.surfaceName = surface;
     this.surface = SURFACES[surface];
     if (!this.surface) throw new Error(`unknown surface ${surface}`);
     this.difficulty = difficulty;
+    // Flight recorder — off by default (zero cost in normal play). Pass
+    // `log: true` to capture a structured trace, or `log: <GameLog>` to share one.
+    this.log = log ? (log instanceof GameLog ? log : new GameLog()) : null;
+    this.frame = 0;       // sim frame index (advances in update)
+    this.elapsed = 0;     // sim seconds elapsed
     this.score = new MatchScore({ bestOf });
     this.rng = mulberry32(seed);
     // A SEPARATE stream for serve-fault randomness, so adding faults doesn't
@@ -57,6 +66,11 @@ export class GameDirector {
     this.serveRng = mulberry32(seed + 777);
 
     const map = slotMapping(mode);
+    // Optional slot→player remap (2v2 team picks). Each phone slot can be routed
+    // to a player on its chosen team (slots 0/2 are team 0, 1/3 are team 1), so a
+    // player lands on the side they picked. Must be a permutation of the same
+    // player indices, so teams/positions/AI are otherwise unchanged.
+    if (slotPlayers && this.validSlotPlayers(slotPlayers, map)) map.slots = slotPlayers;
     this.map = map;
     this.players = [];
     for (let i = 0; i < map.players; i++) {
@@ -94,15 +108,33 @@ export class GameDirector {
     this.positionForServe(); // everyone on the correct side for the opening serve
   }
 
+  // A slot→player remap is only honoured if it's a true permutation of the
+  // default mapping (same slots, same player indices, just reordered) — so it
+  // can never drop a player, double-book one, or change team membership.
+  validSlotPlayers(sp, map) {
+    const a = Object.entries(map.slots), b = Object.entries(sp);
+    if (a.length !== b.length) return false;
+    const slots = Object.keys(map.slots).map(Number).sort((x, y) => x - y);
+    if (!slots.every(s => s in sp)) return false;
+    const want = Object.values(map.slots).sort((x, y) => x - y).join(',');
+    const got = Object.values(sp).sort((x, y) => x - y).join(',');
+    return want === got;
+  }
+
   // The player whose team is serving (the one nearest center on that side).
   currentServer() {
     const team = this.score.server;
     const onTeam = this.players.filter(p => p.team === team);
-    // In doubles, alternate the serving partner by total games played.
+    // In doubles, the two partners ALTERNATE service games. A team only serves
+    // every OTHER game, so keying the partner on total games played makes the
+    // parity constant for a given team (it's always even when team 0 serves,
+    // odd when team 1 serves) — so the same partner would serve forever. Key it
+    // on the team's own service rotation instead: advance the partner once per
+    // two total games, i.e. each time it comes back around to this team.
     if (onTeam.length === 2) {
       const gamesPlayed = this.score.games[0] + this.score.games[1] +
         this.score.sets.reduce((s, set) => s + set[0] + set[1], 0);
-      return onTeam[gamesPlayed % 2];
+      return onTeam[Math.floor(gamesPlayed / 2) % 2];
     }
     return onTeam[0];
   }
@@ -122,8 +154,15 @@ export class GameDirector {
 
   handleInput(slot, { move, action, aim, power, sens }) {
     const p = this.players.find(pl => pl.controlledBySlot === slot);
-    if (!p) return;
+    if (!p) {
+      this.logEvent('input', { slot, accepted: false, reason: 'no_player_for_slot', action: action ?? null }, 'warn');
+      return;
+    }
     if (typeof sens === 'number') p.sens = Math.max(0.4, Math.min(1.2, sens));
+    // Only log a move when it actually CHANGES — a joystick streams the same
+    // vector every frame and would otherwise flood the trace. A swipe (action)
+    // is always logged.
+    const moveChanged = !!move && (!p.move || p.move.x !== move.x || p.move.y !== move.y);
     if (move) p.move = { x: move.x, y: move.y };
     // A swipe carries both the shot and its own aim; keep them together so
     // placement comes from the swipe, not from the movement joystick.
@@ -133,10 +172,33 @@ export class GameDirector {
       power: (typeof power === 'number' ? power : null),
       age: 0,
     };
+    if (action || moveChanged) {
+      this.logEvent('input', {
+        slot, player: p.index, accepted: true,
+        move: move ? { x: move.x, y: move.y } : null,
+        action: action ?? null,
+        aim: typeof aim === 'number' ? aim : null,
+        power: typeof power === 'number' ? power : null,
+        sens: typeof sens === 'number' ? sens : null,
+      });
+    }
   }
 
   emit(type, data = {}) {
     this.events.push({ type, ...data });
+    this.logEvent(type, data);
+  }
+
+  // Record a structured entry in the flight recorder (no-op when logging off).
+  logEvent(type, fields = {}, level = 'info') {
+    if (!this.log) return;
+    this.log.push({ t: Math.round(this.elapsed * 1e4) / 1e4, frame: this.frame, type, level, ...fields });
+  }
+
+  // Change state, logging the transition (from → to + why) for the trace.
+  setState(next, reason = null) {
+    if (next !== this.state) this.logEvent('state', { from: this.state, to: next, reason });
+    this.state = next;
   }
 
   drainEvents() {
@@ -149,6 +211,8 @@ export class GameDirector {
 
   update(dt) {
     if (this.state === 'finished') return;
+    this.frame++;
+    this.elapsed += dt;
     for (const p of this.players) {
       if (p.armed && (p.armed.age += dt) > SWING_WINDOW) p.armed = null;
       if (p.swingCooldown > 0) p.swingCooldown -= dt;
@@ -243,7 +307,7 @@ export class GameDirector {
     server.body.pos = { x: cornerX, z: teamSign * (COURT.length / 2 - 0.2) };
     server.body.vel = { x: 0, z: 0 };
     this.ball = new Ball({ pos: { x: cornerX, y: 1.5, z: server.body.pos.z }, vel: { x: 0, y: 5.5, z: 0 } });
-    this.state = 'serve_toss';
+    this.setState('serve_toss', auto ? 'auto_toss' : 'tap_toss');
     this.serveAuto = auto;
     this.tossAge = 0;
     this.serveAnnounced = false;
@@ -273,28 +337,33 @@ export class GameDirector {
     // in the box. A slice serve is a touch slower.
     const pace = (16 + 10 * powerEff) * serveSpeed * (action === 'slice' ? 0.9 : 1);
     this.ball = new Ball({
-      pos: { x: cornerX, y: 2.7, z: server.body.pos.z },
+      // Contact up at full reach (~3 m) like a real serve: more downward room to
+      // clear the net AND drop into the box, so honest serves stop catching the
+      // tape (the old 2.7 m contact netted ~1 serve in 4).
+      pos: { x: cornerX, y: 3.0, z: server.body.pos.z },
       vel: { x: 0, y: 1.0, z: dir * pace },
       spin: { x: dir * (action === 'slice' ? -160 : 110), y: 0, z: 0 },
     });
 
-    // Target a point inside the correct service box, nudged left/right by the
-    // swipe aim. Team 1's screen-right is world -x, so flip a human's nudge.
+    // SKILL-BASED placement — this, and ONLY this, decides whether the serve is
+    // in. No random fault roll and no artificial "overhit" nudge:
+    //   • aim (swipe ANGLE) → WIDTH: box centre out toward (or past) the singles
+    //     line. Aim near the line for an ace; over-aim and it lands wide.
+    //   • power (swipe SPEED) → DEPTH (and pace): a soft serve drops in short and
+    //     safe; a big one drives deep toward — or past — the service line.
+    // Serve within yourself → in; go for too much angle/pace → physics puts it
+    // out. Team 1's screen-right is world −x, so flip a human's nudge.
     const aimNudge = aim != null ? (servingTeam === 1 ? -aim : aim) : 0;
-    const halfBoxW = COURT.singlesWidth / 4;
-    let targetX = boxX + aimNudge * halfBoxW * 0.8;
-    let targetZ = dir * COURT.serviceLine * 0.62;
-
-    // No longer guaranteed in: nudge the TARGET out of the box for a real fault.
-    // A human overhitting (big power) risks sailing long; the AI faults at a
-    // difficulty-scaled rate (its own rng stream so match determinism is
-    // preserved). A second serve is played safer.
-    const safe = this.serveNumber === 2 ? 0.45 : 1;
-    if (isHuman) {
-      targetZ += dir * Math.max(0, powerEff - 0.86) * COURT.serviceLine * 1.8 * safe; // overhit long
-    } else if (this.serveRng() < (1 - this.difficulty) * 0.25 * safe) {
-      if (this.serveRng() < 0.5) targetZ += dir * COURT.serviceLine * 0.6;            // long
-      else targetX += this.serveTarget.xSign * COURT.singlesWidth * 0.45;             // wide
+    const lineReach = COURT.singlesWidth / 2 - Math.abs(boxX) + 0.6; // full aim → just past the singles line
+    let targetX = boxX + aimNudge * lineReach;
+    let targetZ = dir * COURT.serviceLine * (0.55 + 0.5 * powerEff); // 0.55→1.05 of the box depth
+    // The AI's PRECISION is its skill: a weaker server sprays its target more
+    // (deterministic serveRng, so match replays stay stable) and so faults from
+    // imperfect placement, not a coin flip — and it plays a second serve safer.
+    if (!isHuman) {
+      const spray = (1 - this.difficulty) * 2.4 * (this.serveNumber === 2 ? 0.4 : 1);
+      targetX += (this.serveRng() * 2 - 1) * spray;
+      targetZ += dir * (this.serveRng() * 2 - 1) * spray * 0.8;
     }
 
     this.solveServeLanding(targetX, targetZ, dir);
@@ -303,7 +372,23 @@ export class GameDirector {
     this.lastShot = action;
     this.rallyLength = 0;
     this.serveAnnounced = false;
-    this.state = 'rally';
+    // Trace the skill inputs vs. where physics will actually put the ball — the
+    // record that explains any "looked in but FAULT". landingPoint() is a
+    // forward-sim, so only pay for it when logging is on.
+    if (this.log) {
+      const lp = this.landingPoint();
+      this.logEvent('serve_strike', {
+        team: servingTeam, player: server.index, slot: server.controlledBySlot,
+        serveNumber: this.serveNumber, side: side === 1 ? 'deuce' : 'ad', isHuman, action,
+        intendedAim: aim ?? null, intendedPower: power ?? null, powerEff,
+        targetBox: { ...this.serveTarget },
+        targetX: Math.round(targetX * 1e3) / 1e3, targetZ: Math.round(targetZ * 1e3) / 1e3,
+        vel: { x: Math.round(this.ball.vel.x * 100) / 100, y: Math.round(this.ball.vel.y * 100) / 100, z: Math.round(this.ball.vel.z * 100) / 100 },
+        predictedLanding: { x: Math.round(lp.x * 100) / 100, z: Math.round(lp.z * 100) / 100 },
+        predictedInBox: this.serveLandedInBox(lp.x, lp.z),
+      });
+    }
+    this.setState('rally', 'serve_struck');
     this.emit('serve', { team: servingTeam, player: server.index, serveNumber: this.serveNumber });
     this.emit('hit', { player: server.index, slot: server.controlledBySlot, action, power: 0.85, pos: { ...this.ball.pos } });
   }
@@ -382,7 +467,13 @@ export class GameDirector {
       // A struck serve's FIRST bounce must land in the diagonal service box.
       if (this.awaitingServeBounce) {
         this.awaitingServeBounce = false;
-        if (!this.serveLandedInBox(this.ball.pos.x, this.ball.pos.z)) {
+        const inBox = this.serveLandedInBox(this.ball.pos.x, this.ball.pos.z);
+        this.logEvent('serve_result', {
+          serveNumber: this.serveNumber, inBox,
+          landing: { x: Math.round(this.ball.pos.x * 100) / 100, z: Math.round(this.ball.pos.z * 100) / 100 },
+          box: this.serveTarget ? { ...this.serveTarget } : null,
+        });
+        if (!inBox) {
           return this.faultServe('out');
         }
         // Legal serve — play on (the receiver returns it like any other ball).
@@ -410,6 +501,11 @@ export class GameDirector {
 
   tryHits() {
     if (!this.ball || this.ball.bounces > 1) return;
+    // A serve must bounce in the box before it can be returned — otherwise a
+    // returner who reaches it in the air would volley the serve, and the
+    // serve-bounce bookkeeping (awaitingServeBounce) would never clear, mis-
+    // attributing the next net contact as a serve fault.
+    if (this.awaitingServeBounce) return;
     const receivingTeam = this.ball.vel.z > 0 ? 0 : 1;
     if (receivingTeam === this.lastHitTeam && this.rallyLength > 0) return; // no hitting it back to yourself mid-flight
     // Nearest eligible teammate takes the ball (prevents doubles double-swings).
@@ -545,13 +641,57 @@ export class GameDirector {
     // it lands comfortably inside the lines (not right on the baseline). Eases
     // horizontal pace only, so the arc still clears the net. A slice naturally
     // becomes a short drop shot; nothing sails long or wide.
+    //
+    // A LOB travels high and slow, so a small change in the integration step
+    // (this predictor runs at a fixed dt, the live loop may not) swings its long
+    // carry by more than a flat drive's — and a lob that lands right on the
+    // baseline reads as "out" in real play. So give lobs a deeper buffer: they
+    // land well inside the baseline while the tall arc still clears the net.
     if (isHuman) {
-      this.keepLandingWithin(COURT.length / 2 - 1.0, COURT.singlesWidth / 2 - 0.2);
+      // Keep the shot IN, but decouple DEPTH from PLACEMENT so sharp cross-court
+      // angles are actually reachable. The old combined clamp eased vx and vz
+      // together, so pulling a long shot in also straightened it out — a full
+      // swipe barely moved the ball ~1 m sideways. Now:
+      const depthMargin = action === 'lob' ? 2.0 : 1.0;       // lobs land well inside the baseline
+      const maxZ = COURT.length / 2 - depthMargin;
+      const maxX = COURT.singlesWidth / 2 - 0.2;
+      // 1) DEPTH — ease forward pace (vz only) until it lands inside the baseline.
+      for (let i = 0; i < 22; i++) {
+        if (Math.abs(this.landingPoint().z) <= maxZ) break;
+        this.ball.vel.z *= 0.9;
+      }
+      // 2) PLACEMENT — solve lateral pace (vx only) so the first bounce lands at
+      // the AIMED x (true angle), against the real flight sim.
+      const reach = Math.min(maxX, COURT.singlesWidth / 2 - 0.5);
+      const aimTargetX = Math.max(-reach, Math.min(reach, humanAim * reach));
+      for (let i = 0; i < 16; i++) {
+        this.ball.vel.x += (aimTargetX - this.landingPoint().x) * 0.6;
+      }
+      // 3) WIDTH safety — never let it sail past the sideline.
+      for (let i = 0; i < 10; i++) {
+        if (Math.abs(this.landingPoint().x) <= maxX) break;
+        this.ball.vel.x *= 0.9;
+      }
     }
     this.lastHitTeam = player.team;
     this.lastShot = action;
     this.rallyLength++;
     player.swingCooldown = 0.35;
+    // Intended (aim/power the swipe asked for) vs. actual (struck velocity and
+    // where physics says it lands) — the record for "my shot went the wrong way".
+    if (this.log) {
+      const lp = this.landingPoint();
+      this.logEvent('shot', {
+        player: player.index, slot: player.controlledBySlot, isHuman, action,
+        intendedAim: isHuman ? (aim != null ? aim : player.move.x) : null,
+        intendedPower: isHuman ? (swipePower != null ? swipePower : null) : null,
+        aiError: !isHuman && netDump ? 'net_dump' : (!isHuman && depthScale > 1 ? 'overcook' : null),
+        contact: { x: Math.round(this.ball.pos.x * 100) / 100, y: Math.round(this.ball.pos.y * 100) / 100, z: Math.round(this.ball.pos.z * 100) / 100 },
+        vel: { x: Math.round(this.ball.vel.x * 100) / 100, y: Math.round(this.ball.vel.y * 100) / 100, z: Math.round(this.ball.vel.z * 100) / 100 },
+        predictedLanding: { x: Math.round(lp.x * 100) / 100, z: Math.round(lp.z * 100) / 100 },
+        rallyLength: this.rallyLength,
+      }, netDump ? 'warn' : 'info');
+    }
     this.emit('hit', {
       player: player.index, slot: player.controlledBySlot, action, power,
       pos: { ...this.ball.pos }, rallyLength: this.rallyLength,
@@ -570,7 +710,10 @@ export class GameDirector {
       this.ball.vel.x += (tX - lp.x) * 0.5;
     }
     const netTop = COURT.netHeight + BALL.radius;
-    for (let i = 0; i < 6 && this.heightAtNet() < netTop + 0.18; i++) this.ball.vel.y += 0.8;
+    // Clear the cord by a healthy margin (finer, more iterations than before) so
+    // honest serves don't catch the tape — the dominant cause of "it looked in
+    // but FAULT". vz (pace) is untouched, so a harder swipe still serves faster.
+    for (let i = 0; i < 16 && this.heightAtNet() < netTop + 0.33; i++) this.ball.vel.y += 0.5;
   }
 
   // Did a struck serve land in the diagonally-correct service box? (Past the
@@ -587,12 +730,32 @@ export class GameDirector {
   // DOUBLE FAULT, the point to the receiver.
   faultServe(reason) {
     const servingTeam = this.lastHitTeam;
+    // Classify WHERE it missed so the TV can say why ("into the net" / "long" /
+    // "wide") — otherwise a serve that lands deep on the court reads as a
+    // mystery "FAULT" to the player.
+    let detail = 'out';
+    if (reason === 'net') {
+      detail = 'net';
+    } else if (this.ball) {
+      const long = Math.abs(this.ball.pos.z) > COURT.serviceLine;
+      const wide = Math.abs(this.ball.pos.x) > COURT.singlesWidth / 2;
+      detail = long && wide ? 'long & wide' : long ? 'long' : wide ? 'wide' : 'out';
+    }
+    // A serve ruled fault that ACTUALLY bounced inside the box is the classic
+    // "looked in but FAULT" bug — flag it loudly so the report catches it.
+    if (reason !== 'net' && this.ball && this.serveLandedInBox(this.ball.pos.x, this.ball.pos.z)) {
+      this.logEvent('contradiction', {
+        what: 'serve_in_box_but_fault', detail,
+        landing: { x: Math.round(this.ball.pos.x * 100) / 100, z: Math.round(this.ball.pos.z * 100) / 100 },
+        box: this.serveTarget ? { ...this.serveTarget } : null,
+      }, 'warn');
+    }
     this.awaitingServeBounce = false;
     this.ball = null;
-    this.emit('fault', { team: servingTeam, serveNumber: this.serveNumber, reason });
+    this.emit('fault', { team: servingTeam, serveNumber: this.serveNumber, reason, detail });
     if (this.serveNumber === 1) {
       this.serveNumber = 2;
-      this.state = 'serve_pending';
+      this.setState('serve_pending', 'fault');
       this.serveTimer = SERVE_DELAY;
       this.serveAnnounced = false;   // re-prompt the human for the second serve
       this.positionForServe();
@@ -620,9 +783,9 @@ export class GameDirector {
     }
     this.ball = null;
     if (this.score.completed) {
-      this.state = 'finished';
+      this.setState('finished', 'match_complete');
     } else {
-      this.state = 'serve_pending';
+      this.setState('serve_pending', 'next_point');
       this.serveTimer = SERVE_DELAY;
       this.serveAnnounced = false; // re-announce on the next point's serve
       this.positionForServe();     // reset both players to the correct sides

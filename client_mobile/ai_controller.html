@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Keyboard / AI Test Controller</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #111; color: #fff; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; background: #444; color: white; font-weight: bold; }
+    button:hover { background: #666; }
+    #status { margin-bottom: 20px; font-weight: bold; color: #4ade80; }
+    .key-hint { color: #888; font-size: 0.8em; margin-left: 5px; }
+    .section { background: #222; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+    input { padding: 10px; border-radius: 5px; border: 1px solid #444; background: #000; color: #fff; font-size: 16px; }
+    #btn-join { background: #2563eb; }
+    #btn-join:hover { background: #3b82f6; }
+  </style>
+</head>
+<body>
+  <h1>Keyboard Test Controller</h1>
+  <div id="status">Status: Disconnected</div>
+  
+  <div class="section">
+    <label>Room Code: <input type="text" id="roomCode" value="" placeholder="e.g. 1365" /></label>
+    <button id="btn-join">Join Match</button>
+  </div>
+  
+  <div id="controls" style="display:none;">
+    <div class="section">
+      <h3>Movement</h3>
+      <p>Use <strong>W, A, S, D</strong> or <strong>Arrow Keys</strong> to move. The player stops when you release the keys.</p>
+      <div>
+        <button id="btn-move-up" onmousedown="move(0, -1)" onmouseup="move(0, 0)">Up <span class="key-hint">(W / Up)</span></button>
+      </div>
+      <div>
+        <button id="btn-move-left" onmousedown="move(-1, 0)" onmouseup="move(0, 0)">Left <span class="key-hint">(A / Left)</span></button>
+        <button id="btn-move-down" onmousedown="move(0, 1)" onmouseup="move(0, 0)">Down <span class="key-hint">(S / Down)</span></button>
+        <button id="btn-move-right" onmousedown="move(1, 0)" onmouseup="move(0, 0)">Right <span class="key-hint">(D / Right)</span></button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Shots</h3>
+      <p>Press <strong>Space</strong> for Toss/Lob, <strong>J</strong> for Flat, <strong>K</strong> for Topspin, <strong>L</strong> for Slice.</p>
+      <button id="btn-shot-lob" onclick="shot('lob')">Lob / Tap (Toss) <span class="key-hint">(Space)</span></button>
+      <button id="btn-shot-flat" onclick="shot('flat')">Flat <span class="key-hint">(J)</span></button>
+      <button id="btn-shot-topspin" onclick="shot('topspin')">Topspin <span class="key-hint">(K)</span></button>
+      <button id="btn-shot-slice" onclick="shot('slice')">Slice <span class="key-hint">(L)</span></button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { MSG, encode, decode } from '../shared/protocol.js';
+
+    let ws = null;
+    let seq = 0;
+    
+    document.getElementById('btn-join').onclick = () => {
+      const code = document.getElementById('roomCode').value.trim();
+      if (!code) return alert("Please enter the room code");
+      
+      ws = new WebSocket(`ws://${location.host}`);
+      ws.onopen = () => {
+        ws.send(encode(MSG.JOIN, { code, playerId: 'keyboard-' + Math.floor(Math.random()*10000), name: 'PC Tester' }));
+      };
+      
+      ws.onmessage = (e) => {
+        const msg = decode(e.data);
+        if (msg?.type === MSG.JOINED) {
+          document.getElementById('status').innerText = `Status: Connected (Slot ${msg.slot})`;
+          document.getElementById('controls').style.display = 'block';
+        } else if (msg?.type === MSG.JOIN_ERROR) {
+          document.getElementById('status').innerText = `Status: Join Error (${msg.reason})`;
+        }
+      };
+    };
+
+    let currentMove = {x: 0, y: 0};
+    const activeKeys = new Set();
+
+    window.move = (x, y) => {
+      if (!ws) return;
+      currentMove = {x, y};
+      ws.send(encode(MSG.INPUT, { seq: seq++, t: performance.now(), move: currentMove, sens: 0.85 }));
+    };
+
+    window.shot = (action) => {
+      if (!ws) return;
+      ws.send(encode(MSG.INPUT, { 
+        seq: seq++, 
+        t: performance.now(), 
+        move: currentMove, 
+        action, 
+        aim: currentMove.x !== 0 ? currentMove.x : 0, // Aim where moving, or center
+        power: 0.8, 
+        sens: 0.85 
+      }));
+    };
+
+    function updateMovementFromKeys() {
+      let x = 0;
+      let y = 0;
+      if (activeKeys.has('w') || activeKeys.has('arrowup')) y -= 1;
+      if (activeKeys.has('s') || activeKeys.has('arrowdown')) y += 1;
+      if (activeKeys.has('a') || activeKeys.has('arrowleft')) x -= 1;
+      if (activeKeys.has('d') || activeKeys.has('arrowright')) x += 1;
+      
+      // Normalize diagonals
+      if (x !== 0 && y !== 0) {
+        x *= 0.707;
+        y *= 0.707;
+      }
+      
+      if (x !== currentMove.x || y !== currentMove.y) {
+        move(x, y);
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || !ws) return;
+      const key = e.key.toLowerCase();
+      
+      // Movement
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        e.preventDefault();
+        activeKeys.add(key);
+        updateMovementFromKeys();
+      }
+      
+      // Shots
+      if (key === ' ' || key === 'spacebar') { e.preventDefault(); shot('lob'); }
+      if (key === 'j') { e.preventDefault(); shot('flat'); }
+      if (key === 'k') { e.preventDefault(); shot('topspin'); }
+      if (key === 'l') { e.preventDefault(); shot('slice'); }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.target.tagName === 'INPUT' || !ws) return;
+      const key = e.key.toLowerCase();
+      
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        e.preventDefault();
+        activeKeys.delete(key);
+        updateMovementFromKeys();
+      }
+    });
+
+  </script>
+</body>
+</html>

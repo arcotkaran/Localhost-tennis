@@ -42,10 +42,10 @@ export class SessionController {
 
   // ----- quick match -----
 
-  startQuickMatch({ mode, surface, format = 'bestOf3', characters = [], difficulty = 0.72 }) {
+  startQuickMatch({ mode, surface, format = 'bestOf3', characters = [], difficulty = 0.72, slotPlayers = null }) {
     if (this.state !== 'menu') throw new Error(`cannot start from ${this.state}`);
     this.mode = 'quick';
-    this.createDirector({ mode, surface, format, characters, difficulty });
+    this.createDirector({ mode, surface, format, characters, difficulty, slotPlayers });
   }
 
   // ----- tournament -----
@@ -77,10 +77,10 @@ export class SessionController {
 
   // ----- shared match lifecycle -----
 
-  createDirector({ mode, surface, format, characters, difficulty = 0.72, title = null }) {
+  createDirector({ mode, surface, format, characters, difficulty = 0.72, title = null, slotPlayers = null }) {
     const f = FORMATS[format] ?? FORMATS.bestOf3;
     this.director = new GameDirector({
-      mode, surface, bestOf: f.bestOf, characters, difficulty, seed: this.seed++,
+      mode, surface, bestOf: f.bestOf, characters, difficulty, seed: this.seed++, slotPlayers,
     });
     this.director.score.gamesPerSet = f.gamesPerSet;
     this.director.score.tiebreakAt = f.tiebreakAt;

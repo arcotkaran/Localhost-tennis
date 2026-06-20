@@ -155,6 +155,67 @@ test('faults happen but stay a minority, and AI matches still finish', () => {
   }
 });
 
+test('a serve must bounce before it can be returned (no air-volley of the serve)', () => {
+  const d = new GameDirector({ mode: '1v1', seed: 1 });
+  d.serve('flat');
+  assert.equal(d.awaitingServeBounce, true, 'the struck serve awaits its first bounce');
+  // Stand the receiver right on the in-flight ball, at a reachable height.
+  const receiver = d.players[1];
+  receiver.body.pos = { x: d.ball.pos.x, z: d.ball.pos.z };
+  d.ball.pos = { ...d.ball.pos, y: 1.0 };
+  d.ball.bounces = 0;
+  const rally0 = d.rallyLength;
+  d.tryHits();
+  assert.equal(d.rallyLength, rally0, 'the receiver does NOT volley the serve out of the air');
+  assert.equal(d.awaitingServeBounce, true, 'still waiting for the serve to bounce');
+});
+
+test('a serve fault reports WHERE it missed (net / long / wide) for the TV banner', () => {
+  // Long: past the service line, inside the singles line.
+  let d = new GameDirector({ mode: '1v1', seed: 1 });
+  d.serve('flat');
+  d.ball.pos = { x: d.serveTarget.xSign * 1.5, z: d.serveTarget.dir * 9 };
+  d.faultServe('out');
+  assert.equal(d.drainEvents().find(e => e.type === 'fault').detail, 'long', 'deep miss → long');
+
+  // Wide: inside the service line, past the singles line.
+  d = new GameDirector({ mode: '1v1', seed: 1 });
+  d.serve('flat');
+  d.ball.pos = { x: d.serveTarget.xSign * 5, z: d.serveTarget.dir * 3 };
+  d.faultServe('out');
+  assert.equal(d.drainEvents().find(e => e.type === 'fault').detail, 'wide', 'wide miss → wide');
+
+  // Net: classified from the reason, no bounce needed.
+  d = new GameDirector({ mode: '1v1', seed: 1 });
+  d.serve('flat');
+  d.faultServe('net');
+  assert.equal(d.drainEvents().find(e => e.type === 'fault').detail, 'net', 'net miss → net');
+});
+
+test('the serve is decided by ANGLE + SPEED (skill), not a fault percentage', () => {
+  // Strike a human serve through the real toss→swipe flow and report the call.
+  function strike({ power, aim, seed = 5 }) {
+    const d = new GameDirector({ mode: '1v1', seed });
+    d.attachSlot(0); d.score.server = 0; d.positionForServe();
+    d.update(1 / 120); d.handleInput(0, { action: 'flat' });             // toss
+    d.update(1 / 120); d.handleInput(0, { action: 'flat', aim, power }); // strike
+    const ev = [];
+    for (let i = 0; i < 500; i++) {
+      d.update(1 / 120); ev.push(...d.drainEvents());
+      if (ev.some(e => e.type === 'fault' || e.type === 'point' || (e.type === 'hit' && e.rallyLength >= 1))) break;
+    }
+    return ev.find(e => e.type === 'fault')?.detail ?? 'in';
+  }
+  assert.equal(strike({ power: 0.6, aim: 0 }), 'in', 'a controlled serve lands in');
+  assert.equal(strike({ power: 1.0, aim: 0 }), 'long', 'bombing it flat overcooks long');
+  assert.equal(strike({ power: 0.6, aim: -1 }), 'wide', 'aiming past the line goes wide');
+  // Deterministic — the SAME swipe yields the SAME call on any seed (no dice).
+  for (const seed of [1, 2, 50]) {
+    assert.equal(strike({ power: 0.9, aim: -0.6, seed }), strike({ power: 0.9, aim: -0.6, seed: 5 }),
+      'human serve has no hidden randomness');
+  }
+});
+
 test('a legal serve from the real serve flow lands in the service box most of the time', () => {
   // Sanity that the tuned serve (not a forced landing) usually lands in.
   let inBox = 0, total = 0;

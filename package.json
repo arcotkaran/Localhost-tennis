@@ -6,6 +6,10 @@
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test \"tests/*.test.js\"",
+    "testbed": "node tools/testbed/run.mjs",
+    "audit": "node tools/testbed/audit.mjs",
+    "e2e": "node tools/e2e.mjs",
+    "probe": "node tools/probe.mjs",
     "test:phase1": "node --test tests/phase1.network.test.js",
     "test:phase2": "node --test tests/phase2.controller.test.js",
     "test:phase3": "node --test tests/phase3.physics.test.js",
@@ -25,7 +29,8 @@
     "test:phase17": "node --test tests/phase17.names.test.js",
     "test:phase18": "node --test tests/phase18.endgame.test.js",
     "test:phase19": "node --test tests/phase19.serve.test.js",
-    "test:phase20": "node --test tests/phase20.toss.test.js"
+    "test:phase20": "node --test tests/phase20.toss.test.js",
+    "test:phase21": "node --test tests/phase21.testbed.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

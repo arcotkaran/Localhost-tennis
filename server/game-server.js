@@ -11,7 +11,7 @@ import { MSG, MAX_PLAYERS, encode, decode, cleanName } from '../shared/protocol.
 import { LagCompensator } from './lag-compensator.js';
 
 const MIME = {
-  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg',
   '.glb': 'model/gltf-binary', '.json': 'application/json',
 };
@@ -84,17 +84,36 @@ export class TennisServer extends EventEmitter {
       });
       return;
     }
-    // The TV view (running on the host machine) fetches the room code here.
-    // Loopback-only: phones on the LAN must read the code off the TV screen.
-    if (req.url === '/api/info') {
-      if (isLoopback(req.socket.remoteAddress)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        const lanUrl = this.lanHost ? `http://${this.lanHost}:${this.port}/` : null;
-        res.end(JSON.stringify({ roomCode: this.roomCode, port: this.port, lanUrl }));
-      } else {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'room code is only served to the host machine' }));
+    // Dev-only: the Test Lab POSTs flight-recorder trace entries here (loopback
+    // only) so a live testing session can be persisted to logs/ for diagnosis.
+    if (req.url === '/api/debug/log' && req.method === 'POST') {
+      if (!isLoopback(req.socket.remoteAddress) || !this.staticRoot) {
+        res.writeHead(403); res.end(); return;
       }
+      const chunks = [];
+      req.on('data', c => chunks.push(c));
+      req.on('end', async () => {
+        try {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const { appendFile, mkdir } = await import('node:fs/promises');
+          await mkdir(join(this.staticRoot, 'logs'), { recursive: true });
+          // Body is newline-delimited JSON entries; append verbatim.
+          await appendFile(join(this.staticRoot, 'logs', 'lab-session.jsonl'), text.endsWith('\n') ? text : text + '\n');
+          res.writeHead(200); res.end('logged');
+        } catch {
+          res.writeHead(500); res.end();
+        }
+      });
+      return;
+    }
+    // The TV view fetches the room code + LAN url here. Any device on the Wi-Fi
+    // may now be the TV/host (open /host on it), so this is served to the whole
+    // LAN — the code is already shown on the TV screen, so there's nothing extra
+    // to leak, and a host page needs it to register and display.
+    if (req.url === '/api/info') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      const lanUrl = this.lanHost ? `http://${this.lanHost}:${this.port}/` : null;
+      res.end(JSON.stringify({ roomCode: this.roomCode, port: this.port, lanUrl }));
       return;
     }
     if (!this.staticRoot) { res.writeHead(404); res.end(); return; }
@@ -102,11 +121,28 @@ export class TennisServer extends EventEmitter {
     // as /client_host/index.html?code=1234) must not become part of the path or
     // readFile fails and the page 404s.
     const pathname = req.url.split(/[?#]/)[0];
+    const query = req.url.slice(pathname.length); // '?bot' etc. — forwarded on redirect
+    // A stable, memorable URL for the TV/host: open http://<lan-ip>:<port>/host
+    // (or /tv) on ANY device on the Wi-Fi and it becomes the TV renderer. We
+    // redirect to the real page so its relative asset URLs resolve — preserving
+    // the query string (e.g. /host?bot enables the hands-free auto-player).
+    if (pathname === '/host' || pathname === '/host/' || pathname === '/tv' || pathname === '/tv/') {
+      res.writeHead(302, { Location: '/client_host/index.html' + query });
+      res.end();
+      return;
+    }
+    // The Test Lab — a watchable 2D testing console served at a friendly URL.
+    if (pathname === '/lab' || pathname === '/lab/') {
+      res.writeHead(302, { Location: '/client_host/lab.html' + query });
+      res.end();
+      return;
+    }
     // Redirect instead of serving the controller at '/': the page's relative
     // asset URLs (js/controller.js, ../shared/*.js) must resolve against its
-    // real path or the phone gets dead HTML with no script.
+    // real path or the phone gets dead HTML with no script. Preserve the query
+    // so the QR's '/?code=1234' carries the room code through to the controller.
     if (pathname === '/') {
-      res.writeHead(302, { Location: '/client_mobile/index.html' });
+      res.writeHead(302, { Location: '/client_mobile/index.html' + query });
       res.end();
       return;
     }
@@ -131,12 +167,22 @@ export class TennisServer extends EventEmitter {
 
   onMessage(ws, msg) {
     switch (msg.type) {
-      case MSG.HOST_REGISTER:
-        // Only the host machine (loopback) may register as the TV — a LAN phone
-        // that read the room code off the screen must not be able to impersonate
-        // it and drive game state.
-        if (msg.code === this.roomCode && isLoopback(ws._socket?.remoteAddress)) this.hostWs = ws;
+      case MSG.HOST_REGISTER: {
+        // ANY device on the Wi-Fi may claim the TV/host role (open /host on it).
+        // No code is required to host; if one IS supplied it must match, which
+        // stops a stale tab from a previous server run (different code) from
+        // grabbing the role. The latest claim wins so you can move the TV to a
+        // new screen at any time — the previous host is told it's been
+        // superseded so there are never two TVs driving the sim at once.
+        if (msg.code != null && msg.code !== this.roomCode) return;
+        if (this.hostWs && this.hostWs !== ws && this.hostWs.readyState === 1) {
+          this.hostWs.send(encode(MSG.HOST_SUPERSEDED, {}));
+        }
+        this.hostWs = ws;
+        ws._isHost = true;
+        this.emit('host_register', { remote: ws._socket?.remoteAddress ?? null });
         return;
+      }
       case MSG.JOIN: return this.handleJoin(ws, msg);
       case MSG.SET_NAME: {
         // A phone changed its display name mid-session — update it and tell
@@ -205,6 +251,15 @@ export class TennisServer extends EventEmitter {
         if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.END_MATCH, {}));
         return;
       }
+      case MSG.TEAM_CHOICE: {
+        // A phone picked its 2v2 team + shirt colour — forward to the TV with the
+        // player's slot so the host can honour it when it builds the match.
+        if (ws === this.hostWs) return;
+        const slot = this.players.get(ws._playerId)?.slot;
+        if (slot == null) return;
+        if (this.hostWs?.readyState === 1) this.hostWs.send(encode(MSG.TEAM_CHOICE, { slot, team: msg.team, color: msg.color }));
+        return;
+      }
       case MSG.LOBBY_STATE: {
         // TV tells phones whether it's at the menu (show the Start Game panel)
         // or in a match (show the gamepad). Cache it so a phone that joins later
@@ -222,7 +277,12 @@ export class TennisServer extends EventEmitter {
       case MSG.INPUT: {
         const playerId = ws._playerId;
         if (!playerId || this.gameState.phase === 'paused') return;
-        this.lag.submit(playerId, msg.seq, msg.t, { move: msg.move, action: msg.action });
+        // Buffer the FULL input (swipe placement/power + sensitivity), not just
+        // move/action, so a reordered swing keeps its aim and pace.
+        this.lag.submit(playerId, msg.seq, msg.t, {
+          move: msg.move, action: msg.action,
+          aim: msg.aim, power: msg.power, sens: msg.sens,
+        });
         this.emit('input', { playerId, seq: msg.seq });
         // Relay to the TV renderer with the player's slot attached.
         if (this.hostWs?.readyState === 1) {
@@ -284,6 +344,13 @@ export class TennisServer extends EventEmitter {
   }
 
   onClose(ws) {
+    // The TV/host went away — free the role so the next device that opens /host
+    // takes over cleanly (a dead socket is skipped by readyState checks anyway,
+    // but clearing it lets a fresh claim win without a stale-host comparison).
+    if (this.hostWs === ws) {
+      this.hostWs = null;
+      this.emit('host_left', {});
+    }
     const playerId = ws._playerId;
     if (!playerId) return;
     const player = this.players.get(playerId);

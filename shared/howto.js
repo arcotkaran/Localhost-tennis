@@ -27,8 +27,8 @@ export const HOW_TO_PLAY = {
       icon: '🎾',
       lines: [
         'SWIPE on the RIGHT half of the phone to hit — no buttons, so you never look down.',
-        'Three shots from the swipe direction: a tap or sideways swipe = DRIVE (flat/topspin), swipe UP = LOB, swipe DOWN = SLICE drop shot.',
-        'The swipe also aims and powers the ball: its left/right angle places the shot, and a faster swipe hits harder. So a diagonal down-right swipe is a slice placed to the right.',
+        'The swipe shape picks the shot: a TAP = a LOB over the net player; swipe UP = a DRIVE (a slower swipe is heavy TOPSPIN, a faster one a FLAT bullet); swipe DOWN = a SLICE / drop shot.',
+        'The swipe also aims and powers the ball: its left/right angle places the shot, and a faster swipe hits harder. So a diagonal up-right swipe is a drive placed to the right, a diagonal down-left a slice placed to the left.',
         'Smash and volley happen automatically — smash a high ball, volley at the net.',
         'Swipe just as the ball arrives (the timing window is about half a second).',
       ],
@@ -39,7 +39,7 @@ export const HOW_TO_PLAY = {
       lines: [
         'When it is your serve, the TV and your phone show a prompt and it buzzes.',
         'TAP to toss the ball up, then SWIPE to strike it — like a real serve.',
-        'The strike swipe places and paces it: angle aims into the box, speed adds power. Overhitting can fault — first fault gives a second serve, two faults is a double fault.',
+        'The strike swipe is pure skill: its ANGLE aims into the box and its SPEED sets the pace. Aim within the lines and don’t over-hit, or it sails wide/long for a fault — there’s no luck to it. First fault gives a second serve; two faults is a double fault.',
       ],
     },
     {
@@ -59,11 +59,11 @@ export const HOW_TO_PLAY = {
 export const PHONE_CHEAT_SHEET = [
   ['Left half', 'touch & drag to move'],
   ['Right half', 'swipe to hit'],
-  ['Tap or →', 'drive (forehand/backhand)'],
-  ['Swipe ↑', 'lob over the net player'],
-  ['Swipe ↓', 'slice drop shot'],
+  ['Tap', 'lob over the net player'],
+  ['Swipe ↑', 'drive — topspin or flat'],
+  ['Swipe ↓', 'slice / drop shot'],
   ['Swipe angle', 'aims the ball left/right'],
-  ['Swipe speed', 'shot power'],
+  ['Swipe speed', 'shot power (slow ↑ = topspin, fast ↑ = flat)'],
   ['Serve', 'tap to toss, then swipe to strike'],
   ['Auto', 'smash a high ball, volley at net'],
 ];

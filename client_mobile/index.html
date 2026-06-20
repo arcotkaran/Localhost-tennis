@@ -51,6 +51,8 @@
 
   #pause-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: rgba(0,0,0,.78); font-size: 22px; z-index: 20; text-align: center; padding: 20px; }
   #pause-overlay.show { display: flex; }
+  #resume-btn { display: none; font-size: 20px; padding: 14px 48px; border-radius: 12px; border: none; background: #c8f04a; color: #11300f; font-weight: 800; letter-spacing: 1px; }
+  #resume-btn.show { display: block; }
   #end-match-btn { font-size: 17px; padding: 11px 30px; border-radius: 10px; border: 1px solid #f0824a; background: rgba(60,18,10,.9); color: #ffb999; font-weight: 700; letter-spacing: 1px; }
 
   /* ---- Start Game panel (shown while the TV is at the menu) ---- */
@@ -61,13 +63,19 @@
   .sp-row > span { width: 64px; text-align: right; color: #9fd8a8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
   .sp-choice { font-size: 14px; padding: 7px 13px; border-radius: 9px; border: 1px solid #3a7d44; background: rgba(16,48,26,.8); color: #eaf5ea; }
   .sp-choice.sel { background: #c8f04a; color: #11300f; border-color: #c8f04a; font-weight: 700; }
+  .sw { width: 32px; height: 32px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); padding: 0; }
+  .sw.sel { border-color: #fff; transform: scale(1.15); }
   #startgame-btn { margin-top: 6px; font-size: 19px; padding: 12px 44px; border-radius: 12px; border: none; background: linear-gradient(135deg, #d6ff5c, #aade30); color: #11300f; font-weight: 800; letter-spacing: 1px; }
   .sp-hint { color: #79a884; font-size: 12px; text-align: center; max-width: 420px; }
 
   /* ---- help ---- */
   #help-btn { position: absolute; top: 8px; right: 8px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 19px; font-weight: 700; }
   #pause-btn { position: absolute; top: 8px; right: 54px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 16px; }
-  #help-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: rgba(4,16,8,.97); z-index: 30; padding: 18px; }
+  #fullscreen-btn { position: absolute; top: 8px; right: 100px; z-index: 15; width: 38px; height: 38px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.85); color: #c8f04a; font-size: 18px; }
+  /* flex-start + scroll so the close button is always reachable in landscape
+     (centering clipped the "GOT IT" button off the bottom on short screens). */
+  #help-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; background: rgba(4,16,8,.97); z-index: 30; padding: 50px 18px 24px; overflow-y: auto; }
+  #help-x { position: absolute; top: 8px; right: 8px; z-index: 31; width: 40px; height: 40px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.95); color: #c8f04a; font-size: 20px; font-weight: 700; line-height: 1; }
   #help-overlay h2 { color: #c8f04a; font-size: 20px; margin-bottom: 8px; letter-spacing: 1px; }
   #help-list { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; max-width: 520px; }
   #help-list b { color: #c8f04a; font-size: 14px; text-align: right; white-space: nowrap; }
@@ -100,7 +108,7 @@
       <div id="joystick-base"><div id="joystick-thumb"></div></div>
     </div>
     <div id="swipe-zone">
-      <div id="swipe-hint"><span class="big">SWIPE TO HIT</span>tap / → = drive<br>↑ = lob · ↓ = slice<br>aim &amp; speed = your swipe</div>
+      <div id="swipe-hint"><span class="big">SWIPE TO HIT</span>tap = lob<br>↑ = topspin/flat · ↓ = slice<br>angle aims · speed = power</div>
       <div id="shot-flash"></div>
     </div>
     <div id="serve-cue">YOUR SERVE — TAP TO TOSS</div>
@@ -113,6 +121,11 @@
       <button class="sp-choice" data-mode="1v1">1v1</button>
       <button class="sp-choice" data-mode="2v2">2v2</button>
     </div>
+    <div class="sp-row sp-2v2" id="sp-team" style="display:none"><span>Team</span>
+      <button class="sp-choice" data-team="0">Blue</button>
+      <button class="sp-choice" data-team="1">Red</button>
+    </div>
+    <div class="sp-row sp-2v2" id="sp-shirt" style="display:none"><span>Shirt</span></div>
     <div class="sp-row" id="sp-surface"><span>Surface</span>
       <button class="sp-choice sel" data-surface="hard">Hard</button>
       <button class="sp-choice" data-surface="clay">Clay</button>
@@ -134,22 +147,25 @@
 
   <div id="pause-overlay">
     <div id="pause-text">Game paused —<br>waiting for a player to reconnect…</div>
+    <div id="sens-row">
+      <label for="sens">Movement sensitivity</label>
+      <input id="sens" type="range" min="0.4" max="1.2" step="0.05" value="0.85">
+      <span id="sens-val">0.85</span>
+    </div>
+    <button id="resume-btn">▶ Resume</button>
     <button id="end-match-btn">⏹ End Match</button>
   </div>
 
   <button id="pause-btn" aria-label="Pause">⏸</button>
   <button id="help-btn" aria-label="How to play">?</button>
+  <button id="fullscreen-btn" aria-label="Fullscreen">⛶</button>
   <div id="help-overlay">
+    <button id="help-x" aria-label="Close help">✕</button>
     <h2>HOW TO PLAY</h2>
     <div id="help-list"></div>
     <div id="name-row">
       <label for="name-edit">Your name</label>
       <input id="name-edit" type="text" maxlength="14" placeholder="Your name" autocomplete="off">
-    </div>
-    <div id="sens-row">
-      <label for="sens">Movement sensitivity</label>
-      <input id="sens" type="range" min="0.4" max="1.2" step="0.05" value="0.85">
-      <span id="sens-val">0.85</span>
     </div>
     <button id="help-close">GOT IT</button>
   </div>
