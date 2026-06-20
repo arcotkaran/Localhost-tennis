@@ -389,7 +389,7 @@ export class GameDirector {
       });
     }
     this.setState('rally', 'serve_struck');
-    this.emit('serve', { team: servingTeam, player: server.index, serveNumber: this.serveNumber });
+    this.emit('serve', { team: servingTeam, player: server.index, serveNumber: this.serveNumber, speed: Math.abs(this.ball.vel.z) });
     this.emit('hit', { player: server.index, slot: server.controlledBySlot, action, power: 0.85, pos: { ...this.ball.pos } });
   }
 

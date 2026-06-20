@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { GameLog } from '../shared/game-log.js';
 import { GameDirector } from '../shared/game-director.js';
 import { sanitizeTeamChoice, SHIRT_COLORS } from '../shared/protocol.js';
+import { MatchStats } from '../shared/match-stats.js';
 import { runPlan, CASES } from '../tools/testbed/plan.mjs';
 
 const DT = 1 / 120;
@@ -148,6 +149,45 @@ test('sanitizeTeamChoice clamps the team and validates the shirt colour', () => 
   assert.deepEqual(sanitizeTeamChoice({ team: 1, color: SHIRT_COLORS[2] }), { team: 1, color: SHIRT_COLORS[2] });
   assert.deepEqual(sanitizeTeamChoice({ team: 9, color: '#nope' }), { team: 0, color: null });
   assert.deepEqual(sanitizeTeamChoice({}), { team: 0, color: null });
+});
+
+// ---------- broadcast match statistics ----------
+
+test('MatchStats classifies aces, winners, unforced errors, double faults & fastest serve', () => {
+  const s = new MatchStats();
+  // team 0 serves a 180 km/h (50 m/s) ace: serve then an untouched point (rally 0).
+  s.consume({ type: 'serve', team: 0, speed: 50 });
+  s.consume({ type: 'point', team: 0, reason: 'double_bounce', rallyLength: 0 });
+  // team 0 serves again (slower), wins a long rally with a clean winner.
+  s.consume({ type: 'serve', team: 0, speed: 40 });
+  s.consume({ type: 'point', team: 0, reason: 'double_bounce', rallyLength: 6 });
+  // team 1 serves; team 0 wins because team 1 dumped it in the net (team 1 error).
+  s.consume({ type: 'serve', team: 1, speed: 45 });
+  s.consume({ type: 'point', team: 0, reason: 'net', rallyLength: 3 });
+  // team 1 double-faults a point away.
+  s.consume({ type: 'double_fault', team: 1 });
+  s.consume({ type: 'point', team: 0, reason: 'double_fault', rallyLength: 0 });
+
+  const sum = s.summary();
+  assert.equal(sum.teams[0].aces, 1, 'one ace');
+  assert.equal(sum.teams[0].winners, 1, 'one groundstroke winner (the ace is not double-counted)');
+  assert.equal(sum.teams[1].unforcedErrors, 1, 'the net dump is the loser’s unforced error');
+  assert.equal(sum.teams[1].doubleFaults, 1);
+  assert.equal(sum.teams[0].fastestServeKmh, Math.round(50 * 3.6), 'fastest serve tracked in km/h');
+  assert.equal(sum.teams[0].pointsWon, 4);
+  assert.equal(sum.longestRally, 6);
+});
+
+test('MatchStats over a real AI match is internally consistent', () => {
+  const d = new GameDirector({ mode: '1v1', surface: 'hard', bestOf: 1, seed: 7 });
+  d.score.gamesPerSet = 4; d.score.tiebreakAt = 4;       // a quick "short set"
+  const stats = new MatchStats();
+  for (let t = 0; t < 2000 && d.state !== 'finished'; t += DT) { d.update(DT); stats.consumeAll(d.drainEvents()); }
+  const sum = stats.summary();
+  assert.equal(d.state, 'finished', 'match completed');
+  assert.equal(sum.teams[0].pointsWon + sum.teams[1].pointsWon, sum.totalPoints, 'points reconcile');
+  assert.ok(sum.totalPoints > 0 && sum.longestRally >= 0);
+  for (const t of [0, 1]) assert.ok(sum.teams[t].fastestServeKmh >= 0 && sum.teams[t].serves >= 0);
 });
 
 // ---------- the shared plan is the gate for the testbed itself ----------

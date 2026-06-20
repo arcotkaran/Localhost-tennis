@@ -44,7 +44,11 @@ const finitePt = p => p && finite(p.x, p.y ?? 0, p.z);
 // ===========================================================================
 // A. INVARIANT SOAK
 // ===========================================================================
-const FORMATS = { short: { bestOf: 1, gamesPerSet: 4, tiebreakAt: 4 }, bestOf3: { bestOf: 3, gamesPerSet: 6, tiebreakAt: 6 } };
+const FORMATS = {
+  short:   { bestOf: 1, gamesPerSet: 4, tiebreakAt: 4 },
+  oneSet:  { bestOf: 1, gamesPerSet: 6, tiebreakAt: 6 },
+  bestOf3: { bestOf: 3, gamesPerSet: 6, tiebreakAt: 6 },
+};
 
 function soakMatch(mode, surface, fmt, seed, { log = false } = {}) {
   const f = FORMATS[fmt];
@@ -117,7 +121,7 @@ function soakMatch(mode, surface, fmt, seed, { log = false } = {}) {
 function auditA() {
   console.log('# A. Invariant soak (every mode × surface × format × seed)');
   let n = 0; const stats = { rally: [], faultRate: [], oneSided: 0, matches: 0 };
-  for (const fmt of ['short', 'bestOf3']) {
+  for (const fmt of ['short', 'oneSet', 'bestOf3']) {
     const seeds = fmt === 'short' ? SEEDS_SHORT : SEEDS_LONG;
     for (const mode of MODES) for (const surface of SURFACES) for (let seed = 0; seed < seeds; seed++) {
       const r = soakMatch(mode, surface, fmt, seed); n++;

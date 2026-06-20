@@ -35,6 +35,20 @@
   #pause #pause-qr { width: 150px; height: 150px; background: #fff; border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center; }
   #pause #pause-qr svg { width: 100%; height: 100%; }
   #pause .pause-hint { font-size: 15px; color: #9fd8a8; }
+  /* broadcast-style end-of-match stats card */
+  #stats-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; z-index: 9; background: rgba(6,18,10,.95); border: 1px solid rgba(200,240,74,.32); border-radius: 16px; padding: 20px 30px; box-shadow: 0 12px 50px rgba(0,0,0,.6); min-width: 380px; }
+  #stats-card.show { display: block; }
+  #stats-card .sc-title { text-align: center; color: #c8f04a; font-size: 21px; letter-spacing: 4px; font-weight: 800; margin-bottom: 14px; }
+  #sc-table { width: 100%; border-collapse: collapse; font-size: 18px; }
+  #sc-table th { padding: 4px 16px 10px; font-size: 16px; font-weight: 800; }
+  #sc-table th.v0 { text-align: right; color: #4ad8f0; }
+  #sc-table th.v1 { text-align: left; color: #f0654a; }
+  #sc-table td { padding: 7px 16px; }
+  #sc-table td.v0 { text-align: right; color: #4ad8f0; font-weight: 700; }
+  #sc-table td.v1 { text-align: left; color: #f0654a; font-weight: 700; }
+  #sc-table td.label { text-align: center; color: #9fd8a8; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
+  #sc-table tr + tr td { border-top: 1px solid rgba(255,255,255,.07); }
+  #sc-table td.sc-rally { text-align: center; color: #c8f04a; font-size: 14px; padding-top: 14px; letter-spacing: 1px; }
   #pause-btn { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 7; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(200,240,74,.3); background: rgba(8,28,14,.85); color: #c8f04a; font-size: 18px; cursor: pointer; display: none; }
   #pause-btn.show { display: block; }
   #userpause { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(3,10,6,.82); backdrop-filter: blur(5px); z-index: 8; cursor: pointer; }
@@ -169,6 +183,10 @@
 <div id="players">No phones connected yet — AI fills every seat.</div>
 <button id="pause-btn" title="Pause (P / Esc)">⏸</button>
 <div id="banner"></div>
+<div id="stats-card">
+  <div class="sc-title">MATCH STATS</div>
+  <table id="sc-table"></table>
+</div>
 <div id="pause"><div class="pause-box">
   <div class="pause-title">⏸ Paused</div>
   <div class="pause-sub">Waiting for a player to reconnect…</div>
@@ -198,6 +216,7 @@ import { AudioDirector } from './js/audio-manager.js';
 import { CrowdManager } from './js/crowd-manager.js';
 import { synthRecipe, playRecipe } from './js/audio-synth.js';
 import { playerModelSpec, swingPose, clipPose, SWING_DURATION, PIVOT_GROUPS } from './js/player-model.js';
+import { MatchStats } from '../shared/match-stats.js';
 import { EmotionEngine, expressionFor, gesturePose } from './js/emotions.js';
 import { sampleTimeline } from './js/interactions.js';
 
@@ -922,6 +941,7 @@ initNetwork();
 $('superseded-reload').addEventListener('click', () => location.reload());
 let activeInteractions = [];
 let emotions = null;
+let matchStats = new MatchStats(); // broadcast stats for the current match
 let teamNames = ['Blue', 'Red'];
 
 function startMatch() {
@@ -1034,8 +1054,28 @@ $('pause-btn').addEventListener('click', toggleUserPause);
 $('userpause').addEventListener('click', toggleUserPause);
 $('end-match-btn').addEventListener('click', e => { e.stopPropagation(); endGameToMenu(); });
 
+// Broadcast-style end-of-match summary from the accumulated MatchStats.
+function renderStatsCard() {
+  const sum = matchStats.summary();
+  const rows = [
+    ['Points Won', t => sum.teams[t].pointsWon],
+    ['Aces', t => sum.teams[t].aces],
+    ['Winners', t => sum.teams[t].winners],
+    ['Unforced Errors', t => sum.teams[t].unforcedErrors],
+    ['Double Faults', t => sum.teams[t].doubleFaults],
+    ['Fastest Serve', t => sum.teams[t].fastestServeKmh ? `${sum.teams[t].fastestServeKmh} km/h` : '—'],
+  ];
+  const head = `<tr><th class="v0">${teamNames[0]}</th><th></th><th class="v1">${teamNames[1]}</th></tr>`;
+  const body = rows.map(([label, fn]) =>
+    `<tr><td class="v0">${fn(0)}</td><td class="label">${label}</td><td class="v1">${fn(1)}</td></tr>`).join('');
+  const foot = `<tr><td colspan="3" class="sc-rally">Longest rally — ${sum.longestRally} shots</td></tr>`;
+  $('sc-table').innerHTML = head + body + foot;
+  $('stats-card').classList.add('show');
+}
+
 function handleSessionEvents(events) {
   for (const e of events) {
+    matchStats.consume(e); // accumulate broadcast stats from the live event stream
     switch (e.type) {
       case 'entry': onMatchCreated(e.title); break;
       case 'serve_ready':
@@ -1075,6 +1115,8 @@ function handleSessionEvents(events) {
       case 'match_start':
         crowd.preServe();
         matchLive = true;
+        matchStats = new MatchStats();         // fresh broadcast stats per match
+        $('stats-card').classList.remove('show');
         clearAllPause();                       // every new match starts unpaused, regardless of how the last one ended (#9)
         // Tell the server play is live so phone disconnects pause the match.
         if (ws?.readyState === 1) {
@@ -1117,12 +1159,13 @@ function handleSessionEvents(events) {
       case 'match':
         banner(`MATCH — ${teamNames[e.team]}`, 2600);
         emotions?.matchWon(e.team);
+        renderStatsCard();                     // broadcast-style end-of-match summary
         matchLive = false;
         // Play is over — a phone leaving during the celebration must not
         // freeze the trophy scene.
         if (ws?.readyState === 1) ws.send(encode(MSG.MATCH_PHASE, { phase: 'lobby' }));
         break;
-      case 'bracket': crowd.pointWon({ winningShot: 'smash', rallyLength: 10 }); showBracket(e.round, e.bracket); break;
+      case 'bracket': $('stats-card').classList.remove('show'); crowd.pointWon({ winningShot: 'smash', rallyLength: 10 }); showBracket(e.round, e.bracket); break;
       case 'champion':
         banner(`🏆 ${e.entrant.name} — CHAMPION`, 6000);
         crowd.pointWon({ winningShot: 'smash', rallyLength: 20, isPressurePoint: true });
@@ -1134,6 +1177,7 @@ function handleSessionEvents(events) {
         $('menu').style.display = 'flex';
         $('bracket-overlay').style.display = 'none';
         $('scoreboard').style.display = 'none';
+        $('stats-card').classList.remove('show');
         $('pause-btn').classList.remove('show');
         // Clear BOTH pause states on any return to the menu (a stuck flag would
         // otherwise freeze the next match — see clearAllPause / #9). Echo the
