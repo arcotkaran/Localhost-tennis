@@ -262,6 +262,7 @@ function wireChoices(rowId, attr, onPick) {
     if (!btn) return;
     for (const b of $(rowId).querySelectorAll('.choice')) b.classList.remove('sel');
     btn.classList.add('sel');
+    ensureAudioCtx(); audio.ui('select'); // menu blip (also unlocks audio so the menu ambience can start)
     onPick(btn.dataset[attr]);
   });
 }
@@ -1050,6 +1051,9 @@ function renderJoinQR(lanUrl, code) {
 const session = new SessionController({ seed: (Date.now() % 100000) | 0 });
 initNetwork();
 renderLobby(); // show the "waiting for players" prompt before anyone has scanned in
+// Soft crowd ambience on the menu so the front-end isn't dead silent. Starts
+// once audio is unlocked by the first click; the render loop drains the queue.
+setInterval(() => { if (actx && session.state === 'menu') audio.crowd('murmur', 0.5); }, 1500);
 // Reloading re-opens the host URL → re-registers → bumps whoever took the TV.
 $('superseded-reload').addEventListener('click', () => location.reload());
 let activeInteractions = [];
@@ -1061,6 +1065,7 @@ let teamNames = ['Blue', 'Red'];
 
 function startMatch() {
   ensureAudioCtx();
+  audio.ui('start'); audio.crowd('cheer', 0.5); // match-start flourish
   matchColors = {}; // cleared unless a 2v2 launch sets per-player shirt colours
   const selects = [...$('char-row').querySelectorAll('select')];
   courtMat.map = courtTexture(surface);

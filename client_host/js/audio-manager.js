@@ -9,6 +9,7 @@ export const SAMPLES = {
   bounce: { grass: 'bounce_grass', clay: 'bounce_clay', hard: 'bounce_hard' },
   grunt: ['grunt_soft', 'grunt_mid', 'grunt_hard'],
   crowd: { cheer: 'crowd_cheer', gasp: 'crowd_gasp', murmur: 'crowd_murmur', silence: null },
+  ui: { select: 'ui_select', start: 'ui_start' }, // menu blips so the front-end isn't silent
 };
 
 // Stereo pan from court x position: -1 (full left) .. +1 (full right).
@@ -67,5 +68,10 @@ export class AudioDirector {
   crowd(mood, intensity = 1) {
     if (mood === 'silence') return this.emit({ sample: null, stopAll: 'crowd', volume: 0 });
     return this.emit({ sample: SAMPLES.crowd[mood], volume: Math.min(1, intensity), pitch: 1, pan: 0 });
+  }
+
+  // Front-end UI blips (menu selection, match start) — keeps the menu alive.
+  ui(kind = 'select') {
+    return this.emit({ sample: SAMPLES.ui[kind] ?? SAMPLES.ui.select, volume: kind === 'start' ? 0.6 : 0.4, pitch: 1, pan: 0 });
   }
 }

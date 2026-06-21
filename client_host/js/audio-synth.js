@@ -51,6 +51,20 @@ export function synthRecipe(desc) {
     ];
   }
 
+  // ---- UI: menu select blip + match-start flourish ----
+  if (sample === 'ui_select') {
+    return [
+      { kind: 'osc', wave: 'sine', freq: 660 * pitch, freqEnd: 990 * pitch, attack: 0.002, decay: 0.10, gain: 0.28 * v },
+      { kind: 'osc', wave: 'triangle', freq: 1320 * pitch, attack: 0.002, decay: 0.05, gain: 0.08 * v },
+    ];
+  }
+  if (sample === 'ui_start') {
+    return [ // a rising two-note "go!" chime
+      { kind: 'osc', wave: 'triangle', freq: 523 * pitch, freqEnd: 784 * pitch, attack: 0.004, decay: 0.20, gain: 0.32 * v },
+      { kind: 'osc', wave: 'sine', freq: 784 * pitch, freqEnd: 1046 * pitch, attack: 0.02, decay: 0.24, gain: 0.20 * v, delay: 0.07 },
+    ];
+  }
+
   // ---- crowd ----
   if (sample === 'crowd_cheer') {
     return [
