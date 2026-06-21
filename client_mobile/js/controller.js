@@ -209,7 +209,14 @@ function endSwipe(t) {
 
 const half = () => window.innerWidth / 2;
 
+// Once a real touch is seen, ignore mouse events for good. Mobile browsers fire
+// SYNTHETIC mouse events (~300ms) after a tap; without this guard a single tap
+// ran endSwipe twice (touchend + synthetic mouseup), which during a serve tossed
+// AND struck in one tap — and double-fired shots mid-rally. Desktop (no touch)
+// never trips this flag, so the mouse fallback still works there.
+let usedTouch = false;
 function onTouchStart(e) {
+  usedTouch = true;
   for (const t of e.changedTouches) {
     if (t.clientX < half() && moveTouchId === null) startMove(t);
     else if (t.clientX >= half() && swipeTouchId === null) startSwipe(t);
@@ -236,15 +243,17 @@ gp.addEventListener('touchcancel', onTouchEnd, { passive: true });
 // Mouse fallback so the controller is testable/usable on a desktop too.
 let mouseDown = false;
 gp.addEventListener('mousedown', e => {
+  if (usedTouch) return;            // a touch device — ignore synthetic/secondary mouse
   mouseDown = true;
   const fake = { identifier: 'mouse', clientX: e.clientX, clientY: e.clientY };
   if (e.clientX < half()) startMove(fake); else startSwipe(fake);
 });
 gp.addEventListener('mousemove', e => {
-  if (!mouseDown) return;
+  if (usedTouch || !mouseDown) return;
   if (moveTouchId === 'mouse') moveMove({ identifier: 'mouse', clientX: e.clientX, clientY: e.clientY });
 });
 gp.addEventListener('mouseup', e => {
+  if (usedTouch) return;
   mouseDown = false;
   if (moveTouchId === 'mouse') endMove();
   else if (swipeTouchId === 'mouse') endSwipe({ identifier: 'mouse', clientX: e.clientX, clientY: e.clientY });

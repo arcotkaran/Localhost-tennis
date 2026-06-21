@@ -42,7 +42,7 @@ export function slotMapping(mode) {
 }
 
 // A human server who walks away must not soft-lock the match.
-export const SERVE_FALLBACK = 12.0; // seconds before an idle human auto-serves
+export const SERVE_FALLBACK = 12.0; // retained for tests/compat; a human server is NO LONGER auto-served (waits as long as they like)
 // Two-step serve: a tap tosses the ball up, a swipe strikes it.
 export const TOSS_STRIKE_DELAY = 0.45; // AI/fallback strikes this long after the toss (near the apex)
 export const HUMAN_TOSS_WINDOW = 1.4;  // a human who tosses but never swipes is auto-struck (anti-softlock)
@@ -222,7 +222,9 @@ export class GameDirector {
       const server = this.currentServer();
       const human = server.controlledBySlot !== null;
       if (human) {
-        // Announce once that it's their serve, then wait for a TAP to toss.
+        // Announce once that it's their serve, then wait for a TAP to toss —
+        // for as long as the player likes. A human server is NEVER auto-served
+        // (no timeout); a disconnect pauses the match, so there is no soft-lock.
         if (!this.serveAnnounced) {
           this.emit('serve_ready', { team: server.team, player: server.index, slot: server.controlledBySlot, serveNumber: this.serveNumber });
           this.serveAnnounced = true;
@@ -230,8 +232,6 @@ export class GameDirector {
         if (server.armed) {
           server.armed = null;
           this.tossServe(false);     // tap → toss the ball up; the swipe will strike it
-        } else if (this.serveTimer <= -SERVE_FALLBACK) {
-          this.tossServe(true);      // anti-softlock: the engine tosses AND strikes
         }
       } else if (this.serveTimer <= 0) {
         this.tossServe(true);        // AI auto-tosses (then auto-strikes at the apex)

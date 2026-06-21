@@ -1561,8 +1561,8 @@ window.__tennis = {
       let mx = 0, my = 0, action;
 
       // Serve is handled FIRST — the ball is null in serve_pending, so don't bail
-      // on it or the bot would never toss when it's serving (it'd stall until the
-      // 12 s auto-serve fallback).
+      // on it or the bot would never toss when it's serving (humans/bots are no
+      // longer auto-served, so it would just stall forever waiting to serve).
       if (dir.state === 'serve_pending' && dir.currentServer().controlledBySlot === p.controlledBySlot) {
         action = 'lob';                              // tap → toss
       } else if (dir.state === 'serve_toss' && ball && ball.vel.y < 0 && ball.pos.y < 2.5) {

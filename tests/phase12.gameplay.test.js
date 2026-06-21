@@ -62,12 +62,12 @@ test('serve_ready announces exactly once, not every frame', () => {
   assert.equal(events.filter(e => e.type === 'serve_ready').length, 1, 'announced once');
 });
 
-test('idle human is rescued by the fallback so the match never soft-locks', () => {
+test('a human server is NEVER auto-served — it waits as long as the player wants', () => {
   const d = new GameDirector({ mode: '1v1', seed: 3 });
   d.attachSlot(0);
-  const events = step(d, SERVE_DELAY + SERVE_FALLBACK + 0.3);
-  assert.ok(events.some(e => e.type === 'serve'), 'fallback serve eventually fires');
-  assert.equal(d.state, 'rally');
+  const events = step(d, SERVE_DELAY + SERVE_FALLBACK + 5.0); // well past any old timeout
+  assert.equal(d.state, 'serve_pending', 'still waiting on the human, no matter how long');
+  assert.ok(!events.some(e => e.type === 'serve'), 'no serve ever fires without the player');
 });
 
 test('human serve is placed by the strike swipe aim', () => {

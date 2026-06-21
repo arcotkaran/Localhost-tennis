@@ -83,12 +83,13 @@ test('a human who tosses but never swipes is auto-struck (no soft-lock)', () => 
   assert.notEqual(d.state, 'serve_toss', 'not stuck mid-toss');
 });
 
-test('a human who never even tosses is rescued by the serve fallback', () => {
+test('a human who never tosses is NOT auto-served — the serve waits indefinitely', () => {
   const d = new GameDirector({ mode: '1v1', seed: 3 });
   d.attachSlot(0);
-  const events = step(d, SERVE_DELAY + SERVE_FALLBACK + TOSS_STRIKE_DELAY + 0.5);
-  assert.ok(events.some(e => e.type === 'serve_toss'), 'the fallback tossed');
-  assert.ok(events.some(e => e.type === 'serve'), 'the fallback struck the serve');
+  const events = step(d, SERVE_DELAY + SERVE_FALLBACK + TOSS_STRIKE_DELAY + 1.0);
+  assert.ok(!events.some(e => e.type === 'serve_toss'), 'never auto-tosses');
+  assert.ok(!events.some(e => e.type === 'serve'), 'never auto-serves');
+  assert.equal(d.state, 'serve_pending', 'still waiting for the player to tap');
 });
 
 // ---------- snapshot mid-toss ----------
