@@ -1,5 +1,7 @@
 # Local Tennis 🎾
 
+![A night-session match on the host TV — two players rallying in a floodlit stadium](docs/screenshot.jpg)
+
 A lightweight, zero-lag, instant-setup local multiplayer tennis platform.
 The host machine renders the game (browser window on a TV via HDMI); up to
 four players use their phones as controllers over local Wi-Fi. Strictly
