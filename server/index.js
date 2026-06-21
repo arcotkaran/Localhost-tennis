@@ -38,10 +38,11 @@ async function startVerified(ports) {
 
 // Try stable, friendly ports in order before giving up to an OS-assigned one,
 // so the URL stays the SAME across restarts (key for a bookmarkable host URL).
-// An explicit PORT= always wins; 8080 is conventional but is share-bound on
-// some Windows boxes, so a couple of high ports back it up. Set PORT to pin it.
-const preferred = Number(process.env.PORT) || 8080;
-const server = await startVerified([preferred, 7777, 51123, 0]);
+// Default to 7777, NOT 8080: 8080 is commonly share-bound on Windows (IIS /
+// svchost / other dev tools), which made startup slow on this box. 8080 stays
+// in the list as a fallback. An explicit PORT= always wins and is tried first.
+const preferred = Number(process.env.PORT) || 7777;
+const server = await startVerified([...new Set([preferred, 7777, 8080, 51123, 0])]);
 
 const hostUrl = `http://${ip}:${server.port}/host`;
 console.log('');
