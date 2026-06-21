@@ -1230,9 +1230,13 @@ function handleSessionEvents(events) {
         matchStats = new MatchStats();         // fresh broadcast stats per match
         $('stats-card').classList.remove('show');
         clearAllPause();                       // every new match starts unpaused, regardless of how the last one ended (#9)
-        // Tell the server play is live so phone disconnects pause the match.
+        // Tell the server play is live so phone disconnects pause the match —
+        // and WHICH slots are actually playing, so a benched/spectating
+        // controller dropping out doesn't pause the game (#8).
         if (ws?.readyState === 1) {
-          ws.send(encode(MSG.MATCH_PHASE, { phase: 'playing', snapshot: session.director?.serialize() }));
+          const participants = (session.director?.players ?? [])
+            .map(p => p.controlledBySlot).filter(s => s !== null && s !== undefined);
+          ws.send(encode(MSG.MATCH_PHASE, { phase: 'playing', snapshot: session.director?.serialize(), participants }));
         }
         break;
       case 'hit': {

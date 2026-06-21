@@ -93,6 +93,39 @@ test('TV-reported match phase arms the pause machinery end to end', async () => 
   }
 });
 
+test('a benched (non-participant) controller dropping does NOT pause; a participant does (#8)', async () => {
+  const server = await createTennisServer({ port: 0 });
+  try {
+    const host = await registeredHost(server);
+    const pA = await open(server.port);
+    const pB = await open(server.port);
+    const pC = await open(server.port);
+    const jA = await joinAs(pA, server, 'pa');
+    const jB = await joinAs(pB, server, 'pb');
+    const jC = await joinAs(pC, server, 'pc');
+
+    // 1v1 with three connected: only A and B actually play; C is benched.
+    host.send(encode(MSG.MATCH_PHASE, { phase: 'playing', snapshot: { score: '15-0' }, participants: [jA.slot, jB.slot] }));
+    await new Promise(r => setTimeout(r, 80));
+    assert.equal(server.gameState.phase, 'playing');
+
+    // The benched phone leaves mid-match — the game must keep playing.
+    pC.terminate();
+    await new Promise(r => setTimeout(r, 120));
+    assert.equal(server.gameState.phase, 'playing', 'a non-participant drop does not pause');
+
+    // A real participant leaving DOES still pause.
+    const paused = new Promise(r => server.once('pause', r));
+    pA.terminate();
+    await paused;
+    assert.equal(server.gameState.phase, 'paused', 'a participant drop still pauses');
+
+    for (const ws of [host, pB]) ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+
 test('only the registered TV can flip the match phase', async () => {
   const server = await createTennisServer({ port: 0 });
   try {

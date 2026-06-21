@@ -42,6 +42,7 @@ export class TennisServer extends EventEmitter {
       snapshot: null,      // exact state saved at pause
       match: null,         // live match state (set by game loop)
       pausedFor: [],       // playerIds we are waiting on
+      participants: null,  // slots actually IN the match; null = pause for any drop (legacy)
     };
   }
 
@@ -208,7 +209,7 @@ export class TennisServer extends EventEmitter {
         // pause-on-disconnect machinery would never engage mid-match.
         if (ws !== this.hostWs) return;
         if (msg.phase === 'playing') {
-          this.startMatch(msg.snapshot ?? { hostManaged: true });
+          this.startMatch(msg.snapshot ?? { hostManaged: true }, msg.participants ?? null);
         } else {
           this.endMatch();
         }
@@ -375,9 +376,21 @@ export class TennisServer extends EventEmitter {
     player.connected = false;
     this.emit('disconnect', { playerId, slot: player.slot });
     this.broadcast(MSG.PLAYER_LEFT, { slot: player.slot });
-    if (this.gameState.phase === 'playing') this.pauseGame(playerId);
-    else if (this.gameState.phase === 'paused') {
-      if (!this.gameState.pausedFor.includes(playerId)) this.gameState.pausedFor.push(playerId);
+    // Is this dropped seat actually IN the current match? A benched/spectating
+    // controller leaving must NOT pause the game (bug: 3 joined, 2 playing).
+    const parts = this.gameState.participants;
+    const isParticipant = !parts || parts.includes(player.slot);
+    if (this.gameState.phase === 'playing') {
+      if (isParticipant) this.pauseGame(playerId);
+      else this.releaseSlot(playerId); // non-player left mid-match — keep playing, free the seat
+    } else if (this.gameState.phase === 'paused') {
+      // Only wait on real participants; a non-participant leaving while paused
+      // shouldn't block the resume (and frees its seat).
+      if (isParticipant) {
+        if (!this.gameState.pausedFor.includes(playerId)) this.gameState.pausedFor.push(playerId);
+      } else {
+        this.releaseSlot(playerId);
+      }
     } else {
       // Lobby: nothing to resume into — free the seat so a different phone
       // can take it instead of the room filling up forever.
@@ -408,10 +421,14 @@ export class TennisServer extends EventEmitter {
     this.emit('resume', { snapshot: this.gameState.snapshot });
   }
 
-  startMatch(initialMatchState) {
+  startMatch(initialMatchState, participants = null) {
     this.gameState.match = initialMatchState;
     this.gameState.phase = 'playing';
     this.gameState.pausedFor = [];
+    // Slots actually in this match. A drop by anyone NOT in here (a benched /
+    // spectating controller) must not pause the game. null = legacy "pause for
+    // any drop" (kept so an older TV that doesn't report participants still pauses).
+    this.gameState.participants = Array.isArray(participants) ? participants : null;
   }
 
   // Back to the lobby between matches: clear pause bookkeeping and purge
@@ -421,6 +438,7 @@ export class TennisServer extends EventEmitter {
     this.gameState.match = null;
     this.gameState.snapshot = null;
     this.gameState.pausedFor = [];
+    this.gameState.participants = null;
     for (const [playerId, player] of [...this.players]) {
       if (!player.connected) this.releaseSlot(playerId);
     }
