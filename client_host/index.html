@@ -724,8 +724,9 @@ function applyFace(actor, mood) {
 
 // ---------- cameras ----------
 let viewports = [];
+let splitOrientation = 'horizontal'; // 'horizontal' (top/bottom) or 'vertical' (side-by-side) — toggle with V
 function buildCameras(forMode) {
-  const layout = splitScreenLayout(forMode, innerWidth, innerHeight);
+  const layout = splitScreenLayout(forMode, innerWidth, innerHeight, splitOrientation);
   viewports = layout.viewports.map(v => {
     const cam = new THREE.PerspectiveCamera(v.camera.fov, v.w / v.h, 0.1, 240);
     const sign = v.team === 0 ? 1 : -1;
@@ -733,22 +734,23 @@ function buildCameras(forMode) {
     cam.lookAt(0, 0.4, sign * -3);
     return { ...v, cam };
   });
-  // Precompute integer, gap-free GL rects (y is from the BOTTOM in WebGL). At
-  // odd window heights / fractional devicePixelRatio the old screenH/2 split left
-  // a sub-pixel seam that clipped a sliver off the bottom band; flooring the
-  // halves and letting them tile exactly removes it.
-  if (viewports.length === 2 && layout.split === 'horizontal') {
-    const half = Math.floor(innerHeight / 2);
-    viewports[0].glRect = { x: 0, y: half, w: innerWidth, h: innerHeight - half }; // screen-top band
-    viewports[1].glRect = { x: 0, y: 0, w: innerWidth, h: half };                   // screen-bottom band
-  } else {
-    for (const v of viewports) v.glRect = { x: v.x, y: innerHeight - v.y - v.h, w: v.w, h: v.h };
-  }
+  // WebGL y is from the BOTTOM. splitScreenLayout floors the halves so they tile
+  // exactly (no sub-pixel seam), so one generic mapping serves both orientations.
+  for (const v of viewports) v.glRect = { x: v.x, y: innerHeight - v.y - v.h, w: v.w, h: v.h };
   const div = $('divider');
   if (viewports.length === 2) {
     div.style.display = 'block';
-    div.style.left = '0'; div.style.right = '0'; div.style.height = '3px';
-    div.style.top = `${innerHeight - Math.floor(innerHeight / 2) - 1.5}px`; div.style.width = '';
+    if (layout.split === 'vertical') {
+      const halfW = Math.floor(innerWidth / 2);
+      div.style.background = 'linear-gradient(180deg, transparent, #c8f04a55, transparent)';
+      div.style.top = '0'; div.style.bottom = '0'; div.style.height = '';
+      div.style.left = `${halfW - 1.5}px`; div.style.right = ''; div.style.width = '3px';
+    } else {
+      const halfH = Math.floor(innerHeight / 2);
+      div.style.background = 'linear-gradient(90deg, transparent, #c8f04a55, transparent)';
+      div.style.left = '0'; div.style.right = '0'; div.style.width = '';
+      div.style.top = `${innerHeight - halfH - 1.5}px`; div.style.bottom = ''; div.style.height = '3px';
+    }
   } else div.style.display = 'none';
 }
 const defaultCam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 240);
@@ -830,6 +832,11 @@ addEventListener('keydown', e => {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { e.preventDefault(); toggleUserPause(); }
   else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); endGameToMenu(); }
   else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); showReachRings = !showReachRings; }
+  else if (e.key === 'v' || e.key === 'V') {          // toggle split: top/bottom ↔ side-by-side
+    e.preventDefault();
+    splitOrientation = splitOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+    if (session.director) buildCameras(session.matchMode);
+  }
 });
 // End the current match (TV key Q, the pause-overlay button, or a phone's
 // END_MATCH): stop the director, tell the server we're back in the lobby, and
