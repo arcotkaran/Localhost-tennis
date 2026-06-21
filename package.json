@@ -2,6 +2,8 @@
   "name": "local-tennis",
   "version": "1.0.0",
   "description": "Zero-lag local multiplayer tennis platform. Host renders on TV, phones are controllers over local Wi-Fi.",
+  "license": "MIT",
+  "author": "Arcot Karan",
   "type": "module",
   "scripts": {
     "start": "node server/index.js",

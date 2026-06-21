@@ -139,3 +139,7 @@ recorder** you can read to diagnose bugs.
 - Court surfaces: grass (fast/low), clay (slow/high, momentum slides), hard (neutral).
 - Pure tennis simulation: no weather, no day/night, no gear stats, no power-ups
   (enforced by an automated source audit in the Phase 6 gate).
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and share. Have a party. 🎾
