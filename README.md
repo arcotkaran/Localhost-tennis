@@ -12,6 +12,10 @@ guide: [PLAYING.md](PLAYING.md).
 
 ## Play
 
+**Requirements:** [Node.js](https://nodejs.org) 18 or newer (developed on v24) on
+the host machine. The phones need nothing installed — just a browser on the same
+Wi-Fi. No internet connection is required once the code is on the host.
+
 ```bash
 npm install
 npm start
@@ -64,13 +68,14 @@ roofline floodlights), real-time shadows with ACES filmic tone mapping,
 articulated player models with walk cycles, per-shot swing animations, and
 a body-language engine — fist pumps, slumps, head shakes, and facial
 expressions that track the score. 1v1 renders as stacked full-width bands;
-2v2 is a team-wise split. Broadcast touches: a **live mini-stats** line (rally
-counter + aces) during play, a **slow-mo replay** of the winning shot on
-highlight points (match/break points, long rallies, smashes, aces), and an
-end-of-match **match-stats card** (aces, winners, unforced errors, double faults,
-fastest serve, longest rally). Players can fire **emotes/taunts** from their
-phone that pop as floating bubbles on the TV. "How to Play" lives on the TV menu
-and behind the "?" button on every phone, rendered from one shared source.
+2v2 is a team-wise split. A subtle **reach ring** under each human player shows
+how far they can get to the ball (it brightens gently when a shot is in reach;
+toggle with **R**). Broadcast touches: a **live mini-stats** line (rally counter
++ aces) during play and an end-of-match **match-stats card** (aces, winners,
+unforced errors, double faults, fastest serve, longest rally). Players can fire
+**emotes/taunts** from their phone that pop as floating bubbles on the TV. "How
+to Play" lives on the TV menu and behind the "?" button on every phone, rendered
+from one shared source.
 
 ## Testing gates
 

@@ -68,13 +68,6 @@
     80% { opacity: 1; }
     100% { opacity: 0; transform: translateY(-90px) scale(1.05); }
   }
-  /* slow-mo replay cinematic overlay (letterbox bars + label) */
-  #replay-overlay { position: absolute; inset: 0; display: none; z-index: 7; pointer-events: none; }
-  #replay-overlay.show { display: block; }
-  #replay-overlay .rl-bar { position: absolute; left: 0; right: 0; height: 9%; background: #000; }
-  #replay-overlay .rl-top { top: 0; } #replay-overlay .rl-bot { bottom: 0; }
-  #replay-overlay .rl-label { position: absolute; top: calc(9% + 14px); left: 28px; color: #fff; font-size: 20px; font-weight: 800; letter-spacing: 4px; text-shadow: 0 2px 8px #000; animation: rl-blink 1s steps(2) infinite; }
-  @keyframes rl-blink { 50% { opacity: .35; } }
   #pause-btn { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 7; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(200,240,74,.3); background: rgba(8,28,14,.85); color: #c8f04a; font-size: 18px; cursor: pointer; display: none; }
   #pause-btn.show { display: block; }
   #userpause { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(3,10,6,.82); backdrop-filter: blur(5px); z-index: 8; cursor: pointer; }
@@ -215,7 +208,6 @@
 <button id="pause-btn" title="Pause (P / Esc)">⏸</button>
 <div id="banner"></div>
 <div id="emote-layer"></div>
-<div id="replay-overlay"><div class="rl-bar rl-top"></div><div class="rl-bar rl-bot"></div><div class="rl-label">⟳ REPLAY</div></div>
 <div id="stats-card">
   <div class="sc-title">MATCH STATS</div>
   <table id="sc-table"></table>
@@ -241,6 +233,7 @@
 import * as THREE from 'three';
 import { COURT } from '../shared/physics.js';
 import { SessionController, actorPose, teamDisplayNames } from '../shared/session.js';
+import { REACH_X, REACH_Z } from '../shared/game-director.js';
 import { splitScreenLayout } from '../shared/splitscreen.js';
 import { ROSTER, getPlayer } from '../shared/roster.js';
 import { MSG, encode, decode, HAPTIC_PATTERNS, sanitizeLaunchConfig, SHIRT_COLORS, sanitizeTeamChoice, sanitizeEmote } from '../shared/protocol.js';
@@ -249,7 +242,7 @@ import { AudioDirector } from './js/audio-manager.js';
 import { CrowdManager } from './js/crowd-manager.js';
 import { synthRecipe, playRecipe } from './js/audio-synth.js';
 import { playerModelSpec, swingPose, clipPose, SWING_DURATION, PIVOT_GROUPS } from './js/player-model.js';
-import { MatchStats, isHighlightPoint } from '../shared/match-stats.js';
+import { MatchStats } from '../shared/match-stats.js';
 import { EmotionEngine, expressionFor, gesturePose } from './js/emotions.js';
 import { sampleTimeline } from './js/interactions.js';
 
@@ -635,9 +628,26 @@ const GEO_BUILDERS = {
   box: s => new THREE.BoxGeometry(s[0], s[1], s[2]),
   circle: s => new THREE.CircleGeometry(s[0], 16),
 };
+// Ground "reach ring" telegraphing how far a human player can hit — sized to
+// the director's true REACH_X/REACH_Z (a touch wider than deep), so it can't
+// over-promise. Deliberately subtle: a thin, faint outline that only gently
+// brightens when the ball is in reach (no fill, no pulse — easy on the eyes).
+function makeReachRing() {
+  const g = new THREE.Group();
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.0, 48),
+    new THREE.MeshBasicMaterial({ color: 0x6fd8c8, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide }));
+  rim.rotation.x = -Math.PI / 2;
+  g.add(rim);
+  g.scale.set(REACH_X, 1, REACH_Z);   // flat ellipse matching lateral vs depth reach
+  g.position.y = 0.06;                 // just above the court top (0.05) + lines (~0.0575)
+  g.visible = false;
+  g.userData = { rim };
+  return g;
+}
+
 let actors = [];
 function buildActors(players, characters) {
-  for (const a of actors) { scene.remove(a.group); scene.remove(a.shadow); }
+  for (const a of actors) { scene.remove(a.group); scene.remove(a.shadow); scene.remove(a.reach); }
   actors = players.map((p, i) => {
     // Doubles partners share a team colour family but get distinct shades, so
     // all four players are individually identifiable. Singles/1v1 → variant 0.
@@ -681,7 +691,9 @@ function buildActors(players, characters) {
     shadow.position.y = 0.015;
     shadow.scale.setScalar(0.55);
     scene.add(shadow);
-    return { group, pivots, faceRefs, swing: null, team: p.team, index: i, shadow, walkPhase: 0 };
+    const reach = makeReachRing();
+    scene.add(reach);
+    return { group, pivots, faceRefs, swing: null, team: p.team, index: i, shadow, walkPhase: 0, reach, reachHot: 0 };
   });
 }
 
@@ -817,6 +829,7 @@ function toggleUserPause() {
 addEventListener('keydown', e => {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { e.preventDefault(); toggleUserPause(); }
   else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); endGameToMenu(); }
+  else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); showReachRings = !showReachRings; }
 });
 // End the current match (TV key Q, the pause-overlay button, or a phone's
 // END_MATCH): stop the director, tell the server we're back in the lobby, and
@@ -841,7 +854,6 @@ function clearAllPause() {
   userPaused = false;
   $('pause').style.display = 'none';
   $('userpause').classList.remove('show');
-  replay = null; ballBuf = []; $('replay-overlay').classList.remove('show'); // no stale replay across match boundaries
 }
 function sendHapticTo(slot, pattern) {
   if (ws?.readyState === 1) ws.send(encode(MSG.HAPTIC, { slot, pattern }));
@@ -982,9 +994,7 @@ let activeInteractions = [];
 let emotions = null;
 let matchStats = new MatchStats(); // broadcast stats for the current match
 let liveRally = 0;                 // current rally length, for the live mini-stats line
-let ballBuf = [];                  // ring buffer of recent ball positions, for slow-mo replays
-let replay = null;                 // active slow-mo replay { frames, idx } or null
-const BALL_BUF_N = 150;
+let showReachRings = true;          // ground reach ring under human players (toggle: R)
 let teamNames = ['Blue', 'Red'];
 
 function startMatch() {
@@ -1118,13 +1128,6 @@ function pointTag(e) {
   return null;
 }
 
-// Kick off a slow-mo replay of the buffered winning shot (the render loop plays it).
-function startReplay() {
-  if (replay || ballBuf.length < 15) return;
-  replay = { frames: ballBuf.slice(-80), idx: 0 }; // last ~1.3 s of ball flight
-  $('replay-overlay').classList.add('show');
-}
-
 // Pop a phone emote as a floating bubble on the emoting player's side of the TV.
 function showEmote(slot, emoji) {
   const player = session.director?.players.find(p => p.controlledBySlot === slot);
@@ -1192,7 +1195,6 @@ function handleSessionEvents(events) {
       case 'serve': {
         crowd.preServe();                        // (was a dead duplicate case below — folded in here)
         liveRally = 0; updateLiveStats();        // reset the live rally counter for the new point
-        ballBuf = [];                            // start a fresh replay buffer for this point
         // Clear any "your serve" prompt on the server's phone.
         const sp = session.director?.players[e.player]?.controlledBySlot;
         if (sp !== null && sp !== undefined && ws?.readyState === 1) {
@@ -1235,7 +1237,6 @@ function handleSessionEvents(events) {
         updateScoreboard(e);
         updateLiveStats(pointTag(e));            // refresh aces tally + flash the point result
         liveRally = 0;
-        if (isHighlightPoint(e)) startReplay();  // slow-mo the winning shot on a highlight
         const big = e.winningShot === 'smash' || e.rallyLength >= 8 || e.isPressurePoint;
         if (big) camShake = Math.min(0.5, camShake + 0.16);
         emotions?.pointWon(e.team, { big, reason: e.reason });
@@ -1284,6 +1285,7 @@ function handleSessionEvents(events) {
 function animateActors(dt) {
   const dir = session.director;
   const cinematic = session.sequence && (session.state === 'entry' || session.state === 'trophy');
+  const ringsLive = matchLive && !paused && !userPaused && !cinematic && !activeInteractions.length;
   for (const a of actors) {
     let posed = false;
     if (cinematic) {
@@ -1334,6 +1336,29 @@ function animateActors(dt) {
     if (emotions) applyFace(a, emotions.moodOf(a.index));
     a.shadow.position.x = a.group.position.x;
     a.shadow.position.z = a.group.position.z;
+
+    // Reach ring: only under human-controlled players, only in live play.
+    const pl = dir?.players[a.index];
+    const human = pl && pl.controlledBySlot !== null;
+    if (showReachRings && human && ringsLive) {
+      a.reach.visible = true;
+      a.reach.position.x = a.group.position.x;
+      a.reach.position.z = a.group.position.z;
+      let hot = false;
+      const ball = dir.ball;
+      if (ball) {
+        const dx = Math.abs(ball.pos.x - a.reach.position.x);
+        const dz = Math.abs(ball.pos.z - a.reach.position.z);
+        hot = dx < REACH_X && dz < REACH_Z && ball.pos.y < 3.0;
+      }
+      a.reachHot += ((hot ? 1 : 0) - a.reachHot) * Math.min(1, dt * 8); // gentle ease in/out
+      const k = a.reachHot;
+      const { rim } = a.reach.userData;
+      rim.material.color.setRGB(0.43 + 0.30 * k, 0.85 + 0.10 * k, 0.78 - 0.32 * k); // soft teal → soft green
+      rim.material.opacity = 0.1 + 0.2 * k; // faint idle line, mildly brighter in reach
+    } else {
+      a.reach.visible = false;
+    }
   }
   for (const inter of activeInteractions) inter.t += dt;
   activeInteractions = activeInteractions.filter(i => i.t < i.sequence.totalDuration);
@@ -1386,23 +1411,7 @@ function frame(now) {
   const dir = session.director;
   animateActors(realDt || 0.016);
 
-  if (replay) {
-    // Play the buffered winning shot back in slow motion (the live sim keeps
-    // running underneath for the next point; we only override the ball here).
-    const f = replay.frames[Math.min(Math.floor(replay.idx), replay.frames.length - 1)];
-    ballMesh.visible = trail.visible = ballShadow.visible = true;
-    ballMesh.position.set(f.x, f.y, f.z);
-    ballMesh.scale.set(1, 1, 1);
-    ballShadow.position.x = f.x; ballShadow.position.z = f.z;
-    ballShadow.scale.setScalar(Math.max(0.12, 0.3 - f.y * 0.02));
-    ballShadow.material.opacity = Math.max(0.08, 0.34 - f.y * 0.03);
-    trailPositions.copyWithin(3, 0, (TRAIL_N - 1) * 3);
-    trailPositions[0] = f.x; trailPositions[1] = f.y; trailPositions[2] = f.z;
-    trailGeom.attributes.position.needsUpdate = true;
-    replay.idx += 0.6;                          // slow motion (~0.6× speed)
-    if (replay.idx >= replay.frames.length) { replay = null; $('replay-overlay').classList.remove('show'); }
-    hadBall = false;                            // so the next live ball re-seeds the trail
-  } else if (dir?.ball) {
+  if (dir?.ball) {
     ballMesh.visible = trail.visible = ballShadow.visible = true;
     const bp = dir.ball.pos;
     ballMesh.position.set(bp.x, bp.y, bp.z);
@@ -1421,8 +1430,6 @@ function frame(now) {
     trailPositions.copyWithin(3, 0, (TRAIL_N - 1) * 3);
     trailPositions[0] = bp.x; trailPositions[1] = bp.y; trailPositions[2] = bp.z;
     trailGeom.attributes.position.needsUpdate = true;
-    ballBuf.push({ x: bp.x, y: bp.y, z: bp.z });   // record for slow-mo replays
-    if (ballBuf.length > BALL_BUF_N) ballBuf.shift();
     hadBall = true;
   } else {
     ballMesh.visible = trail.visible = ballShadow.visible = false;
