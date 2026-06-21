@@ -24,9 +24,13 @@ async function startVerified(ports) {
   for (const port of ports) {
     const server = await createTennisServer({ port, staticRoot: root, lanHost: pinnedHost });
     try {
-      const res = await fetch(`http://127.0.0.1:${server.port}/shared/protocol.js`);
+      // TIME-BOX the probe. A share-bound ("haunted") port can ACCEPT the TCP
+      // connection but never answer — leaving fetch to hang ~20s on the OS
+      // timeout before we fall back. A healthy localhost probe answers in <50ms,
+      // so abort after 1s and move to the next port: startup stays near-instant.
+      const res = await fetch(`http://127.0.0.1:${server.port}/shared/protocol.js`, { signal: AbortSignal.timeout(1000) });
       if (res.ok) return server;
-    } catch { /* probe failed — port is haunted */ }
+    } catch { /* probe failed or timed out — port is haunted, try the next */ }
     await server.stop();
   }
   throw new Error('could not bind a working port');
