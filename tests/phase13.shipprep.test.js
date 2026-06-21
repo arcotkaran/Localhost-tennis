@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { createTennisServer } from '../server/game-server.js';
+import { rankLanAddresses } from '../server/lan.js';
+import { networkInterfaces } from 'node:os';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -37,11 +39,16 @@ test('/api/info exposes a scannable LAN url when the host knows its IP', async (
   }
 });
 
-test('/api/info lanUrl is null (not a broken url) when no LAN IP is known', async () => {
+test('/api/info auto-detects the LIVE LAN IP when none is pinned (so the QR never goes stale)', async () => {
+  // Regression: a long-running host must follow DHCP changes. With no pinned
+  // lanHost the server re-detects the current LAN IP per request, so the QR
+  // always points at a reachable address (null only when there is no adapter).
   const s = await createTennisServer({ port: 0 });
   try {
     const info = await fetch(`http://127.0.0.1:${s.port}/api/info`).then(r => r.json());
-    assert.equal(info.lanUrl, null);
+    const ip = rankLanAddresses(networkInterfaces())[0]?.address;
+    assert.equal(info.lanUrl, ip ? `http://${ip}:${s.port}/` : null,
+      'with no pin, lanUrl tracks the live-detected LAN IP');
   } finally {
     await s.stop();
   }

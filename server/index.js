@@ -15,9 +15,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const candidates = rankLanAddresses(networkInterfaces());
 const ip = candidates[0]?.address ?? 'localhost';
 
+// Don't PIN the startup IP — pass it only if the user explicitly set LAN_HOST.
+// Otherwise the server auto-detects the LAN IP live per request (via /api/info),
+// so the QR follows DHCP changes instead of going stale after the lease moves.
+const pinnedHost = process.env.LAN_HOST || null;
+
 async function startVerified(ports) {
   for (const port of ports) {
-    const server = await createTennisServer({ port, staticRoot: root, lanHost: ip });
+    const server = await createTennisServer({ port, staticRoot: root, lanHost: pinnedHost });
     try {
       const res = await fetch(`http://127.0.0.1:${server.port}/shared/protocol.js`);
       if (res.ok) return server;

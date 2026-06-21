@@ -6,9 +6,11 @@ import { WebSocketServer } from 'ws';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { MSG, MAX_PLAYERS, encode, decode, cleanName } from '../shared/protocol.js';
 import { LagCompensator } from './lag-compensator.js';
+import { rankLanAddresses } from './lan.js';
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
@@ -112,7 +114,13 @@ export class TennisServer extends EventEmitter {
     // to leak, and a host page needs it to register and display.
     if (req.url === '/api/info') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      const lanUrl = this.lanHost ? `http://${this.lanHost}:${this.port}/` : null;
+      // An explicit lanHost (e.g. env LAN_HOST) is honored; otherwise auto-detect
+      // the LAN IP LIVE on every request so a long-running host follows DHCP /
+      // adapter changes. A server started while the laptop was 192.168.0.83 must
+      // NOT keep advertising .83 after the lease moves to .125 — else the QR sends
+      // phones to a dead address and they can't join.
+      const host = this.lanHost ?? rankLanAddresses(networkInterfaces())[0]?.address ?? null;
+      const lanUrl = host ? `http://${host}:${this.port}/` : null;
       res.end(JSON.stringify({ roomCode: this.roomCode, port: this.port, lanUrl }));
       return;
     }

@@ -875,6 +875,13 @@ async function initNetwork() {
     code = code ?? info?.roomCode;
     lanUrl = info?.lanUrl;
   } catch {}
+  // If the TV itself was opened from a real LAN address (not localhost), phones
+  // on the same Wi-Fi can reach that exact address — prefer it over whatever
+  // /api/info detected, which removes any dependence on server-side adapter
+  // guessing when the host URL is already a working LAN IP.
+  if (!/^(localhost|127\.|0\.0\.0\.0|\[?::1)/.test(location.hostname) && location.hostname) {
+    lanUrl = `${location.protocol}//${location.host}/`;
+  }
   $('code').textContent = code ?? '????';
   $('menu-code').textContent = code ?? '????';
   renderJoinQR(lanUrl, code);
