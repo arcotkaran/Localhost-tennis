@@ -943,7 +943,15 @@ async function initNetwork() {
           break;
 
         case MSG.INPUT:
-          if (!paused && !userPaused) session.handleInput(msg.slot, { move: msg.move, action: msg.action, aim: msg.aim, power: msg.power, sens: msg.sens });
+          if (!paused && !userPaused) {
+            session.handleInput(msg.slot, { move: msg.move, action: msg.action, aim: msg.aim, power: msg.power, sens: msg.sens });
+          } else if (typeof msg.sens === 'number') {
+            // The sensitivity slider lives on the PAUSE overlay, but inputs are
+            // gated while paused — so apply a per-player sens change live here.
+            // Each phone sets only its own player's sensitivity (never global).
+            const p = session.director?.players.find(pl => pl.controlledBySlot === msg.slot);
+            if (p) p.sens = Math.max(0.4, Math.min(1.2, msg.sens));
+          }
           break;
       }
     };

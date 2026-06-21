@@ -284,8 +284,11 @@ export class GameDirector {
       if (team === servingTeam) {
         server.body.pos = { x: side * serverTeamSign * (COURT.singlesWidth / 2 - 0.6), z: baseline };
         server.body.vel = { x: 0, z: 0 };
+        // Real doubles formation: the partner stands at the net DIAGONALLY
+        // across from the server (opposite half), ready to poach — not beside
+        // them. boxWorldX is the half opposite the server's corner.
         const partner = mates.find(p => p !== server);
-        if (partner) { partner.body.pos = { x: -boxWorldX, z: teamSign * COURT.serviceLine * 0.5 }; partner.body.vel = { x: 0, z: 0 }; }
+        if (partner) { partner.body.pos = { x: boxWorldX, z: teamSign * COURT.serviceLine * 0.45 }; partner.body.vel = { x: 0, z: 0 }; }
       } else {
         const returner = mates[0];
         returner.body.pos = { x: boxWorldX, z: baseline };   // diagonally across, on the serve's side
