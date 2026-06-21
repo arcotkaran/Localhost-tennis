@@ -105,6 +105,11 @@
   #howto-btn { font-size: 15px; padding: 9px 26px; border-radius: 10px; border: 1px solid #3a7d44; background: transparent; color: #9fd8a8; cursor: pointer; }
   #menu .hint { color: #79a884; font-size: 13px; max-width: 640px; text-align: center; }
   #join-panel { display: flex; align-items: center; gap: 18px; background: linear-gradient(135deg, rgba(16,48,26,.7), rgba(8,24,13,.7)); border: 1px solid rgba(200,240,74,.2); border-radius: 14px; padding: 14px 20px; margin-top: 4px; }
+  #lobby { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; margin-top: 8px; min-height: 30px; }
+  .lobby-card { display: flex; align-items: center; gap: 8px; background: rgba(16,48,26,.9); border: 1px solid rgba(200,240,74,.3); border-radius: 999px; padding: 6px 16px; font-size: 16px; font-weight: 700; animation: lobby-pop .25s ease-out; }
+  .lc-dot { width: 13px; height: 13px; border-radius: 50%; box-shadow: 0 0 9px currentColor; }
+  .lobby-empty { color: #9fd8a8; font-size: 14px; opacity: .85; }
+  @keyframes lobby-pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   #qr-box { width: 120px; height: 120px; background: #fff; border-radius: 8px; padding: 6px; display: flex; align-items: center; justify-content: center; }
   #qr-box img, #qr-box canvas, #qr-box svg { width: 100%; height: 100%; image-rendering: pixelated; }
   #join-text { text-align: left; }
@@ -177,6 +182,7 @@
       <div class="jt-code">code <b id="menu-code">····</b></div>
     </div>
   </div>
+  <div id="lobby"></div>
   <div class="hint">Phones on the same Wi-Fi: scan the code (or type the address), then enter the join code. Empty seats are AI.</div>
 </div>
 
@@ -981,6 +987,39 @@ function refreshNames() {
   $('name0').textContent = teamNames[0];
   $('name1').textContent = teamNames[1];
   updatePlayersLabel();
+  renderLobby();
+}
+
+// Live lobby roster on the menu: a card per connected phone (name + its shirt
+// colour) so players SEE themselves appear as they scan in. Built with
+// textContent so a phone-typed name can never inject markup.
+function renderLobby() {
+  const el = $('lobby');
+  if (!el) return;
+  el.innerHTML = '';
+  const slots = [...connectedSlots].sort();
+  if (slots.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'lobby-empty';
+    e.textContent = 'Waiting for players — scan the code to join';
+    el.appendChild(e);
+    return;
+  }
+  for (const s of slots) {
+    const ci = slotChoices[s]?.color;
+    const color = (typeof ci === 'number' ? SHIRT_COLORS[ci] : null) ?? SHIRT_COLORS[s % SHIRT_COLORS.length];
+    const card = document.createElement('div');
+    card.className = 'lobby-card';
+    const dot = document.createElement('span');
+    dot.className = 'lc-dot';
+    dot.style.background = color;
+    dot.style.color = color; // currentColor drives the glow
+    const name = document.createElement('span');
+    name.className = 'lc-name';
+    name.textContent = slotNames[s] ?? `Player ${s + 1}`;
+    card.append(dot, name);
+    el.appendChild(card);
+  }
 }
 
 // The controller URL the QR encodes. It carries ?code so scanning JOINS with
@@ -1010,6 +1049,7 @@ function renderJoinQR(lanUrl, code) {
 // ---------- session ----------
 const session = new SessionController({ seed: (Date.now() % 100000) | 0 });
 initNetwork();
+renderLobby(); // show the "waiting for players" prompt before anyone has scanned in
 // Reloading re-opens the host URL → re-registers → bumps whoever took the TV.
 $('superseded-reload').addEventListener('click', () => location.reload());
 let activeInteractions = [];

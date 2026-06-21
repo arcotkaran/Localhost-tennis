@@ -322,6 +322,14 @@ $('help-close').addEventListener('click', closeHelp);     // "GOT IT" at the bot
 $('help-x').addEventListener('click', closeHelp);          // always-visible corner ✕
 $('help-overlay').addEventListener('click', e => { if (e.target === $('help-overlay')) closeHelp(); }); // tap the backdrop
 
+// ---- drop out: leave the room cleanly and return to a fresh join screen ----
+$('leave-btn').addEventListener('click', () => {
+  hasJoined = false;                              // stop the onclose auto-reconnect
+  if (ws) { ws.onclose = null; try { ws.close(); } catch {} } // frees the seat server-side → TV roster updates
+  localStorage.removeItem('tennis_room_code');
+  location.href = location.pathname;              // reload to the join form (drops ?code)
+});
+
 // ---- fullscreen toggle (Android/desktop; a safe no-op where unsupported, e.g. iOS Safari) ----
 $('fullscreen-btn').addEventListener('click', async () => {
   try {
