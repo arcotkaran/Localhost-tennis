@@ -736,9 +736,13 @@ function applyFace(actor, mood) {
 
 // ---------- cameras ----------
 let viewports = [];
-let splitOrientation = 'horizontal'; // 'horizontal' (top/bottom) or 'vertical' (side-by-side) — toggle with V
+// null = AUTO per mode: 1v1 → vertical (tall side-by-side fits the long singles
+// court so each half feels big, not a cramped letterbox); 2v2 → horizontal
+// (full-width band shows both partners). V pins a choice for the current match.
+let splitOrientation = null;
+const effectiveOrientation = mode => splitOrientation ?? (mode === '1v1' ? 'vertical' : 'horizontal');
 function buildCameras(forMode) {
-  const layout = splitScreenLayout(forMode, innerWidth, innerHeight, splitOrientation);
+  const layout = splitScreenLayout(forMode, innerWidth, innerHeight, effectiveOrientation(forMode));
   viewports = layout.viewports.map(v => {
     const cam = new THREE.PerspectiveCamera(v.camera.fov, v.w / v.h, 0.1, 240);
     const sign = v.team === 0 ? 1 : -1;
@@ -873,7 +877,7 @@ addEventListener('keydown', e => {
   }
   else if (e.key === 'v' || e.key === 'V') {          // toggle split: top/bottom ↔ side-by-side
     e.preventDefault();
-    splitOrientation = splitOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+    splitOrientation = effectiveOrientation(session.matchMode) === 'horizontal' ? 'vertical' : 'horizontal';
     if (session.director) buildCameras(session.matchMode);
   }
 });
@@ -1190,6 +1194,7 @@ function updateScoreboard(e) {
 }
 
 function onMatchCreated(title) {
+  splitOrientation = null; // each match starts on its comfortable per-mode default (V re-pins)
   const chars = session.director.players.map(p => p.character);
   buildActors(session.director.players, chars);
   emotions = new EmotionEngine(session.director.players.map(p => p.team));
