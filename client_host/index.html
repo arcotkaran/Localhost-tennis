@@ -82,6 +82,10 @@
   #superseded .sub { font-size: 18px; color: #9fd8a8; max-width: 30ch; }
   #superseded button { margin-top: 18px; font-size: 18px; padding: 12px 40px; border-radius: 10px; border: none; background: #c8f04a; color: #11300f; font-weight: 800; cursor: pointer; letter-spacing: 1px; }
   #divider { position: absolute; display: none; background: linear-gradient(90deg, transparent, #c8f04a55, transparent); z-index: 4; }
+  /* split-screen: a colored frame + name tag per half so each player instantly finds their view */
+  #vp-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+  .vp-frame { position: absolute; border: 2px solid; border-radius: 5px; box-sizing: border-box; opacity: .55; box-shadow: inset 0 0 24px -8px currentColor; }
+  .vp-label { position: absolute; font-size: clamp(13px, 1.5vw, 19px); font-weight: 800; letter-spacing: 1.5px; padding: 5px 14px 6px; border-radius: 0 0 12px 0; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.8); white-space: nowrap; }
 
   /* ---- menu ---- */
   /* Center-ish but NEVER clip: top-align with auto margins so the column sits
@@ -227,6 +231,7 @@
 <div id="userpause"><div>⏸ PAUSED</div><div class="sub">Press P, Esc, or tap to resume</div><button id="end-match-btn">⏹ END MATCH → MENU</button></div>
 <div id="superseded"><div class="big">📺 TV moved to another device</div><div class="sub">Another screen on this Wi-Fi opened the host URL and is now the TV. Reload here to take it back.</div><button id="superseded-reload">RELOAD TO TAKE OVER</button></div>
 <div id="divider"></div>
+<div id="vp-overlay"></div>
 <div id="vignette"></div>
 
 <!-- three.js served locally so the TV works on a no-internet local network. -->
@@ -759,7 +764,31 @@ function buildCameras(forMode) {
       div.style.top = `${innerHeight - halfH - 1.5}px`; div.style.bottom = ''; div.style.height = '3px';
     }
   } else div.style.display = 'none';
+  renderViewportLabels();
 }
+
+// Per-half name tag + team-colored frame so each player instantly finds THEIR
+// view in split-screen (only for the two-way 1v1/2v2 splits, not full-screen).
+const TEAM_TINT = ['#5fb0ff', '#ff7a68']; // blue / red, matching the scoreboard
+function renderViewportLabels() {
+  const ov = $('vp-overlay');
+  if (!ov) return;
+  ov.innerHTML = '';
+  if (!viewports || viewports.length !== 2) return; // single/menu → no tags
+  for (const v of viewports) {
+    const tint = TEAM_TINT[v.team] ?? '#fff';
+    const frame = document.createElement('div');
+    frame.className = 'vp-frame';
+    frame.style.cssText = `left:${v.x}px;top:${v.y}px;width:${v.w}px;height:${v.h}px;border-color:${tint};color:${tint};`;
+    ov.appendChild(frame);
+    const label = document.createElement('div');
+    label.className = 'vp-label';
+    label.style.cssText = `left:${v.x}px;top:${v.y}px;background:linear-gradient(135deg,${tint}d9,${tint}33 70%,transparent);`;
+    label.textContent = (teamNames[v.team] ?? (v.team === 0 ? 'Blue' : 'Red'));
+    ov.appendChild(label);
+  }
+}
+
 const defaultCam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 240);
 defaultCam.position.set(0, 8.5, COURT.length / 2 + 8);
 defaultCam.lookAt(0, 0.4, -4);
@@ -992,6 +1021,7 @@ function refreshNames() {
   $('name1').textContent = teamNames[1];
   updatePlayersLabel();
   renderLobby();
+  renderViewportLabels(); // keep the split-screen name tags in sync
 }
 
 // Live lobby roster on the menu: a card per connected phone (name + its shirt
@@ -1286,6 +1316,8 @@ function handleSessionEvents(events) {
             .map(p => p.controlledBySlot).filter(s => s !== null && s !== undefined);
           ws.send(encode(MSG.MATCH_PHASE, { phase: 'playing', snapshot: session.director?.serialize(), participants }));
         }
+        // Split modes: let players know they can flip the layout to taste.
+        if (viewports.length === 2) banner('Split view — press V to flip layout', 2800);
         break;
       case 'hit': {
         const power = Math.min(1, e.power ?? 0.7);
