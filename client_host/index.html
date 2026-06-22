@@ -179,11 +179,11 @@
     <div id="join-text">
       <div class="jt-label">SCAN TO JOIN</div>
       <div class="jt-url" id="join-url">starting…</div>
-      <div class="jt-code">code <b id="menu-code">····</b></div>
+      <div class="jt-code">no camera? open the address above · code <b id="menu-code">····</b></div>
     </div>
   </div>
   <div id="lobby"></div>
-  <div class="hint">Phones on the same Wi-Fi: scan the code (or type the address), then enter the join code. Empty seats are AI.</div>
+  <div class="hint">📱 Scan the QR with your phone camera — type your name and you're playing. <b>Any joined phone can start the match</b>, so you never need the laptop. Empty seats are AI.</div>
 </div>
 
 <div id="howto">
@@ -839,6 +839,9 @@ addEventListener('keydown', e => {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { e.preventDefault(); toggleUserPause(); }
   else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); endGameToMenu(); }
   else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); showReachRings = !showReachRings; }
+  else if (e.key === 'Enter' && session.state === 'menu' && $('menu').style.display !== 'none') {
+    e.preventDefault(); startMatch();                 // keyboard hosts can start without a mouse
+  }
   else if (e.key === 'v' || e.key === 'V') {          // toggle split: top/bottom ↔ side-by-side
     e.preventDefault();
     splitOrientation = splitOrientation === 'horizontal' ? 'vertical' : 'horizontal';

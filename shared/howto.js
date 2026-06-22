@@ -8,8 +8,8 @@ export const HOW_TO_PLAY = {
       heading: 'Join with your phone',
       icon: '📱',
       lines: [
-        'Open the address shown in the server console on your phone (same Wi-Fi).',
-        'Enter the 4-digit JOIN CODE from the top-left of the TV and tap JOIN.',
+        'Scan the QR code on the TV with your phone camera (same Wi-Fi) — it opens your controller and joins automatically.',
+        'Type your name and tap PLAY. (No camera? Open the address shown on the TV and enter the 4-digit join code.)',
         'Hold your phone in landscape — it becomes your gamepad.',
         'If your phone disconnects, the game pauses; reopen the page and it resumes exactly where it was.',
       ],

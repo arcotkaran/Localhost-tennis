@@ -67,6 +67,7 @@ function connect(code) {
         tryNativeLock(env);
         applyOrientation(decideOrientation(env));
         startPingLoop();
+        showJoinToast(msg.slot); // confirm ON THE PHONE: you're in + which player you are
         break;
       case MSG.JOIN_ERROR: {
         const message = msg.reason === 'room_full' ? 'Room is full — 4 players max' : 'Wrong code — scan the QR on the TV';
@@ -81,6 +82,7 @@ function connect(code) {
       case MSG.HAPTIC: haptics.trigger(msg.pattern); break;
       case MSG.SERVE_CUE: {
         const cue = $('serve-cue');
+        clearTimeout(cue._joinT); // a join toast may be using the same banner
         if (msg.on) {
           cue.textContent = msg.phase === 'strike' ? 'NOW SWIPE TO HIT! 🎾' : 'YOUR SERVE — TAP TO TOSS';
           cue.classList.add('show');
@@ -122,6 +124,19 @@ function connect(code) {
 function startPingLoop() {
   clearInterval(pingTimer);
   pingTimer = setInterval(() => { if (ws?.readyState === 1) ws.send(encode(MSG.PING, { t: performance.now() })); }, 1000);
+}
+
+// Reassure the guest on their OWN phone that the join worked and who they are
+// (the roster card is on the TV; the player is looking down at the phone).
+function showJoinToast(slot) {
+  const cue = $('serve-cue');
+  if (!cue) return;
+  const who = playerName ? `, ${playerName}` : '';
+  const n = typeof slot === 'number' ? ` · Player ${slot + 1}` : '';
+  cue.textContent = `✓ You're in${who}!${n}`;
+  cue.classList.add('show');
+  clearTimeout(cue._joinT);
+  cue._joinT = setTimeout(() => cue.classList.remove('show'), 2000);
 }
 
 function send(raw) { if (ws?.readyState === 1) ws.send(raw); }
@@ -403,7 +418,17 @@ $('startgame-btn').addEventListener('click', () => {
   send(encode(MSG.LAUNCH, { config: launchCfg }));
   const b = $('startgame-btn');
   b.textContent = 'STARTING…';
-  setTimeout(() => { b.textContent = 'START GAME ▶'; }, 2500);
+  clearTimeout(b._t);
+  // Success = the TV leaves the menu, which broadcasts LOBBY_STATE atMenu:false
+  // and hides this whole panel. If we're STILL showing the panel after a beat,
+  // the launch was ignored (TV not at the menu) — say so instead of silently
+  // reverting to a misleading 'STARTING…'.
+  b._t = setTimeout(() => {
+    if ($('startpanel').classList.contains('show')) {
+      b.textContent = 'TV busy — tap to retry';
+      setTimeout(() => { b.textContent = 'START GAME ▶'; }, 1800);
+    }
+  }, 1500);
 });
 
 // ---- movement sensitivity slider (persisted; sent with the next move) ----
