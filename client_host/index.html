@@ -1398,6 +1398,7 @@ function animateActors(dt) {
   const cinematic = session.sequence && (session.state === 'entry' || session.state === 'trophy');
   const ringsLive = matchLive && !paused && !userPaused && !cinematic && !activeInteractions.length;
   for (const a of actors) {
+    if (dir && !dir.players[a.index]) continue; // actor with no player yet (mid match-rebuild) — skip safely
     let posed = false;
     if (cinematic) {
       const item = sampleTimeline(session.sequence, session.sequenceT)[`p${a.index}`];
