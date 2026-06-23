@@ -736,11 +736,13 @@ function applyFace(actor, mood) {
 
 // ---------- cameras ----------
 let viewports = [];
-// null = AUTO per mode: 1v1 → vertical (tall side-by-side fits the long singles
-// court so each half feels big, not a cramped letterbox); 2v2 → horizontal
-// (full-width band shows both partners). V pins a choice for the current match.
+// null = AUTO: both 1v1 and 2v2 default to VERTICAL (side-by-side). A tall
+// half fits the long court so each player's view is BIG, not a cramped
+// half-height letterbox — verified far more comfortable for both modes. V flips
+// to the wide horizontal bands (useful for ultrawide screens or wide doubles
+// rallies); the choice is pinned for the current match, then resets next match.
 let splitOrientation = null;
-const effectiveOrientation = mode => splitOrientation ?? (mode === '1v1' ? 'vertical' : 'horizontal');
+const effectiveOrientation = mode => splitOrientation ?? 'vertical';
 function buildCameras(forMode) {
   const layout = splitScreenLayout(forMode, innerWidth, innerHeight, effectiveOrientation(forMode));
   viewports = layout.viewports.map(v => {
