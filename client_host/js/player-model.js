@@ -48,6 +48,8 @@ export function playerModelSpec(character, team, variant = 0, colorOverride = nu
   const parts = [
     { name: 'torso', geo: 'capsule', size: [0.26 * b, 0.5], color: kit, pos: [0, 1.08, 0] },
     { name: 'shorts', geo: 'capsule', size: [0.24 * b, 0.18], color: shortsColor, pos: [0, 0.78, 0] },
+    { name: 'collar', geo: 'torus', size: [0.1 * b, 0.03], color: kit, pos: [0, 1.4, 0], rot: [Math.PI / 2, 0, 0] },
+    { name: 'neck', geo: 'cylinder', size: [0.072, 0.14], color: skin, pos: [0, 1.43, 0] },
     // Neck pivot carries the head + face + hair + headgear for tilts and shakes.
     { name: 'head', geo: 'sphere', size: [0.16], color: skin, pos: [0, 1.62, 0], pivot: [0, 1.5, 0] },
     { name: 'eyeL', geo: 'sphere', size: [0.022], color: 0x111111, pos: [-0.055, 1.645, 0.135], parent: 'head' },
@@ -55,11 +57,14 @@ export function playerModelSpec(character, team, variant = 0, colorOverride = nu
     { name: 'browL', geo: 'box', size: [0.055, 0.011, 0.012], color: 0x21150c, pos: [-0.055, 1.685, 0.142], parent: 'head' },
     { name: 'browR', geo: 'box', size: [0.055, 0.011, 0.012], color: 0x21150c, pos: [0.055, 1.685, 0.142], parent: 'head' },
     { name: 'mouth', geo: 'torusArc', size: [0.045, 0.009], color: 0x7a2e2e, pos: [0, 1.575, 0.138], parent: 'head' },
-    // Legs pivot at the hips for the run cycle.
-    { name: 'legL', geo: 'capsule', size: [0.09, 0.42], color: 0xf5f5f5, pos: [-0.12, 0.42, 0], pivot: [-0.12, 0.68, 0] },
-    { name: 'legR', geo: 'capsule', size: [0.09, 0.42], color: 0xf5f5f5, pos: [0.12, 0.42, 0], pivot: [0.12, 0.68, 0] },
-    { name: 'shoeL', geo: 'sphere', size: [0.085], color: ap.shoe, pos: [-0.12, 0.16, 0.03], parent: 'legL', scaleY: 0.6 },
-    { name: 'shoeR', geo: 'sphere', size: [0.085], color: ap.shoe, pos: [0.12, 0.16, 0.03], parent: 'legR', scaleY: 0.6 },
+    // Legs pivot at the hips for the run cycle. Bare (skin) below the shorts,
+    // with white ankle socks above the shoes for a real tennis look.
+    { name: 'legL', geo: 'capsule', size: [0.085, 0.42], color: skin, pos: [-0.12, 0.42, 0], pivot: [-0.12, 0.68, 0] },
+    { name: 'legR', geo: 'capsule', size: [0.085, 0.42], color: skin, pos: [0.12, 0.42, 0], pivot: [0.12, 0.68, 0] },
+    { name: 'sockL', geo: 'cylinder', size: [0.094, 0.11], color: 0xf2f2f2, pos: [-0.12, 0.255, 0.005], parent: 'legL' },
+    { name: 'sockR', geo: 'cylinder', size: [0.094, 0.11], color: 0xf2f2f2, pos: [0.12, 0.255, 0.005], parent: 'legR' },
+    { name: 'shoeL', geo: 'sphere', size: [0.088], color: ap.shoe, pos: [-0.12, 0.15, 0.04], parent: 'legL', scaleY: 0.55 },
+    { name: 'shoeR', geo: 'sphere', size: [0.088], color: ap.shoe, pos: [0.12, 0.15, 0.04], parent: 'legR', scaleY: 0.55 },
     // Both arms pivot at the shoulders; the racket rides the right arm.
     { name: 'armL', geo: 'capsule', size: [0.07 * b, 0.4], color: skin, pos: [-0.34, 1.16, 0], pivot: [-0.34, 1.4, 0] },
     { name: 'armR', geo: 'capsule', size: [0.07 * b, 0.4], color: skin, pos: [0.34, 1.16, 0], pivot: [0.34, 1.4, 0] },
@@ -68,6 +73,9 @@ export function playerModelSpec(character, team, variant = 0, colorOverride = nu
     { name: 'racketStrings', geo: 'circle', size: [0.12], color: 0xd8d8c8, pos: [0.36, 0.55, 0.05], parent: 'armR', opacity: 0.55 },
     // Signature wristband on the racket arm.
     { name: 'wristband', geo: 'torus', size: [0.072, 0.022], color: ap.wristband, pos: [0.34, 1.0, 0.02], rot: [Math.PI / 2, 0, 0], parent: 'armR' },
+    // Hands at the ends of the arms (the right grips the racket).
+    { name: 'handL', geo: 'sphere', size: [0.062 * b], color: skin, pos: [-0.34, 0.93, 0], parent: 'armL' },
+    { name: 'handR', geo: 'sphere', size: [0.062 * b], color: skin, pos: [0.34, 0.93, 0.03], parent: 'armR' },
   ];
   // Sleeves (kit-colored caps over the shoulders). Nadal goes sleeveless.
   if (!ap.sleeveless) {

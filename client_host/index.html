@@ -636,13 +636,14 @@ const camFlashes = Array.from({ length: 16 }, () => {
 
 // ---------- actors ----------
 const GEO_BUILDERS = {
-  capsule: s => new THREE.CapsuleGeometry(s[0], s[1], 4, 8),
-  sphere: s => new THREE.SphereGeometry(s[0], 14, 14),
-  cylinder: s => new THREE.CylinderGeometry(s[0], s[0], s[1], 10),
-  torus: s => new THREE.TorusGeometry(s[0], s[1], 8, 20),
-  torusArc: s => new THREE.TorusGeometry(s[0], s[1], 6, 12, Math.PI),
+  // Higher segment counts → noticeably rounder, less-faceted players.
+  capsule: s => new THREE.CapsuleGeometry(s[0], s[1], 8, 18),
+  sphere: s => new THREE.SphereGeometry(s[0], 24, 18),
+  cylinder: s => new THREE.CylinderGeometry(s[0], s[0], s[1], 18),
+  torus: s => new THREE.TorusGeometry(s[0], s[1], 12, 30),
+  torusArc: s => new THREE.TorusGeometry(s[0], s[1], 10, 22, Math.PI),
   box: s => new THREE.BoxGeometry(s[0], s[1], s[2]),
-  circle: s => new THREE.CircleGeometry(s[0], 16),
+  circle: s => new THREE.CircleGeometry(s[0], 28),
 };
 // Ground "reach ring" telegraphing how far a human player can hit — sized to
 // the director's true REACH_X/REACH_Z (a touch wider than deep), so it can't
@@ -680,9 +681,15 @@ function buildActors(players, characters) {
     }
     const faceRefs = {};
     for (const part of spec.parts) {
+      // A soft IBL sheen (env map) + lower roughness reads as nicer fabric/skin
+      // than the old flat matte; the racket frame gets a glossier, metallic look.
+      const isRacket = part.name === 'racketHead' || part.name === 'racketHandle';
       const mesh = new THREE.Mesh(GEO_BUILDERS[part.geo](part.size),
         new THREE.MeshStandardMaterial({
-          color: part.color, roughness: 0.82, metalness: 0.04,
+          color: part.color,
+          roughness: isRacket ? 0.35 : 0.62,
+          metalness: isRacket ? 0.55 : 0.06,
+          envMapIntensity: isRacket ? 0.9 : 0.5,
           ...(part.opacity ? { transparent: true, opacity: part.opacity, side: THREE.DoubleSide } : {}),
         }));
       mesh.castShadow = !part.opacity;
@@ -1372,8 +1379,16 @@ function handleSessionEvents(events) {
         break;
       case 'hit': {
         const power = Math.min(1, e.power ?? 0.7);
-        audio.racketHit({ action: e.action, power, pos: e.pos });
-        if (power > 0.4) audio.grunt({ power, pos: e.pos });
+        // Dynamic ball-strike: jitter pitch/volume per hit so no two thwacks are
+        // identical (mutating the queued descriptor keeps the synth pure/tested).
+        const strike = audio.racketHit({ action: e.action, power, pos: e.pos });
+        strike.pitch *= 0.9 + Math.random() * 0.2;   // ±10% pitch wobble
+        strike.volume *= 0.88 + Math.random() * 0.18;
+        // Randomized grunt on EVERY shot — varied "voice" via a wide pitch spread,
+        // volume scaled by power (soft shots grunt softly) so it never repeats.
+        const grunt = audio.grunt({ power, pos: e.pos });
+        grunt.pitch *= 0.82 + Math.random() * 0.36;
+        grunt.volume *= 0.5 + Math.random() * 0.45;
         if (e.rallyLength) { crowd.rallyShot({ rallyLength: e.rallyLength, ballSpeed: e.ballSpeed ?? 25 }); liveRally = e.rallyLength; updateLiveStats(); }
         if (e.slot !== null && e.slot !== undefined) {
           sendHapticTo(e.slot, e.action === 'smash' ? HAPTIC_PATTERNS.powerSmash : HAPTIC_PATTERNS.standardHit);
