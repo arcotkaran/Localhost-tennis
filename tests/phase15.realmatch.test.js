@@ -40,6 +40,29 @@ test('a shot that clears the cord is NOT a net point', () => {
   assert.ok(!events.some(e => e.type === 'net'), 'cleared the net — no net event');
 });
 
+// ---------- singles vs doubles court width ----------
+
+test('singles: a ball in the doubles alley is OUT; doubles plays it IN', () => {
+  const alleyX = (COURT.singlesWidth / 2 + COURT.width / 2) / 2; // mid-alley: out for singles, in for doubles
+  const dropAlley = d => {
+    d.state = 'rally'; d.lastHitTeam = 0;
+    for (const p of d.players) p.body.pos = { x: 0, z: 10 }; // move everyone away so no one returns it
+    d.ball = new Ball({ pos: { x: alleyX, y: 0.4, z: -6 }, vel: { x: 0, y: -1, z: 0 }, spin: { x: 0, y: 0, z: 0 } });
+  };
+  // 1v1 (singles): the alley ball is OUT — the hitter (team 0) loses the point.
+  const s = new GameDirector({ mode: '1v1', seed: 1 }); dropAlley(s);
+  const sp = step(s, 1.5).find(e => e.type === 'point');
+  assert.ok(sp, 'singles: the point ended');
+  assert.equal(sp.reason, 'out', 'singles: a ball in the doubles alley is OUT');
+  assert.equal(sp.team, 1, 'singles: the team that hit it into the alley loses');
+
+  // 2v2 (doubles): the SAME alley ball is IN — never ruled out (falls to a double bounce).
+  const dd = new GameDirector({ mode: '2v2', seed: 1 }); dropAlley(dd);
+  const dp = step(dd, 2.0).find(e => e.type === 'point');
+  assert.ok(dp, 'doubles: a point ended');
+  assert.notEqual(dp.reason, 'out', 'doubles: the alley ball is IN (ends as a double bounce, not out)');
+});
+
 test('over a full match, net is a minority of point endings (shots clear normally)', () => {
   const d = new GameDirector({ mode: '1v1', surface: 'hard', bestOf: 3, seed: 11 });
   const reasons = {};

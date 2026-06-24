@@ -124,7 +124,10 @@
   .jt-code b { color: #c8f04a; font-size: 20px; letter-spacing: 4px; }
 
   /* ---- how to play ---- */
-  #howto { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(3,10,6,.96); z-index: 12; padding: 40px; }
+  #howto { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: flex-start; background: rgba(3,10,6,.96); z-index: 12; padding: 56px 40px 48px; overflow-y: auto; }
+  /* always-visible close so there's a clear way back to the menu, even when the cards overflow */
+  #howto-x { position: fixed; top: 16px; right: 22px; z-index: 14; width: 48px; height: 48px; border-radius: 50%; border: 2px solid #3a7d44; background: rgba(16,48,26,.96); color: #c8f04a; font-size: 22px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+  #howto-x:hover { border-color: #c8f04a; background: #1a4a2a; }
   #howto h2 { font-size: 36px; color: #c8f04a; margin-bottom: 26px; letter-spacing: 2px; }
   #howto-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 1100px; }
   .howto-card { background: linear-gradient(135deg, rgba(16,48,26,.85), rgba(8,24,13,.85)); border: 1px solid rgba(200,240,74,.2); border-radius: 14px; padding: 20px 24px; }
@@ -194,6 +197,7 @@
 </div>
 
 <div id="howto">
+  <button id="howto-x" aria-label="Close how to play">✕</button>
   <h2>HOW TO PLAY</h2>
   <div id="howto-grid"></div>
   <button id="howto-close">GOT IT</button>
@@ -314,8 +318,11 @@ buildCharSelects();
 $('howto-grid').innerHTML = HOW_TO_PLAY.sections.map(s => `
   <div class="howto-card"><h3>${s.icon} ${s.heading}</h3>
     <ul>${s.lines.map(l => `<li>${l}</li>`).join('')}</ul></div>`).join('');
-$('howto-btn').addEventListener('click', () => { $('howto').style.display = 'flex'; });
-$('howto-close').addEventListener('click', () => { $('howto').style.display = 'none'; });
+const closeHowto = () => { $('howto').style.display = 'none'; };
+$('howto-btn').addEventListener('click', () => { $('howto').style.display = 'flex'; $('howto').scrollTop = 0; });
+$('howto-close').addEventListener('click', closeHowto);   // "GOT IT" at the bottom
+$('howto-x').addEventListener('click', closeHowto);        // always-visible corner ✕
+$('howto').addEventListener('click', e => { if (e.target === $('howto')) closeHowto(); }); // click the backdrop
 
 // ---------- renderer: cinematic pipeline ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -903,6 +910,7 @@ function toggleUserPause() {
   if (ws?.readyState === 1) ws.send(encode(MSG.PAUSE_STATE, { paused: userPaused }));
 }
 addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('howto').style.display === 'flex') { e.preventDefault(); closeHowto(); return; }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { e.preventDefault(); toggleUserPause(); }
   else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); endGameToMenu(); }
   else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); showReachRings = !showReachRings; }

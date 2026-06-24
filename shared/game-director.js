@@ -481,7 +481,10 @@ export class GameDirector {
         }
         // Legal serve — play on (the receiver returns it like any other ball).
       } else {
-        const inCourt = Math.abs(this.ball.pos.x) <= COURT.width / 2 &&
+        // Singles (1v1 / vs-AI) uses the narrower SINGLES court — a ball in the
+        // doubles alley is OUT. Only 2v2 doubles plays the full width.
+        const halfWidth = (this.map.players === 4 ? COURT.width : COURT.singlesWidth) / 2;
+        const inCourt = Math.abs(this.ball.pos.x) <= halfWidth &&
                         Math.abs(this.ball.pos.z) <= COURT.length / 2;
         if (this.ball.bounces === 1 && !inCourt) {
           // Out: the team that hit it loses the point.
