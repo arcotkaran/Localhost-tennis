@@ -15,12 +15,12 @@
   #hud { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 24px; z-index: 5; pointer-events: none; }
   #room { font-size: 15px; background: linear-gradient(135deg, rgba(8,28,14,.92), rgba(4,14,8,.92)); padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(200,240,74,.25); box-shadow: 0 4px 18px rgba(0,0,0,.5); }
   #room b { color: #c8f04a; font-size: 26px; letter-spacing: 6px; margin-left: 10px; font-variant-numeric: tabular-nums; }
-  #scoreboard { background: linear-gradient(135deg, rgba(8,28,14,.92), rgba(4,14,8,.92)); border: 1px solid rgba(200,240,74,.25); border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,.5); overflow: hidden; min-width: 300px; display: none; }
+  #scoreboard { background: linear-gradient(135deg, rgba(8,28,14,.92), rgba(4,14,8,.92)); border: 1px solid rgba(200,240,74,.25); border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,.5); overflow: hidden; min-width: 300px; max-width: min(42vw, 360px); display: none; }
   #scoreboard .sb-row { display: grid; grid-template-columns: 14px 1fr 34px 34px 56px; gap: 4px; align-items: center; padding: 7px 14px; font-size: 17px; }
   #scoreboard .sb-row + .sb-row { border-top: 1px solid rgba(255,255,255,.08); }
   .sb-serve { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
   .sb-serve.on { background: #c8f04a; box-shadow: 0 0 6px #c8f04a; }
-  .sb-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .sb-name.blue { color: #7ee4f5; } .sb-name.red { color: #f58a8a; }
   .sb-num { text-align: center; font-variant-numeric: tabular-nums; }
   .sb-pts { text-align: center; font-weight: 700; color: #c8f04a; font-variant-numeric: tabular-nums; }
@@ -28,6 +28,9 @@
   #players { position: absolute; bottom: 14px; left: 24px; font-size: 14px; color: #9fd8a8; z-index: 5; text-shadow: 0 2px 6px #000; }
   #banner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 58px; font-weight: 800; letter-spacing: 2px; text-shadow: 0 6px 30px rgba(0,0,0,.9), 0 0 60px rgba(200,240,74,.25); z-index: 6; opacity: 0; transition: opacity .45s, transform .45s; transform: scale(.96); pointer-events: none; text-align: center; }
   #banner.show { opacity: 1; transform: scale(1); }
+  /* serve prompt: centered WITHIN the serving player's split-viewport (not across the divider) */
+  #serve-prompt { position: absolute; display: none; align-items: center; justify-content: center; text-align: center; padding: 0 4%; font-size: clamp(20px, 2.6vw, 40px); font-weight: 800; letter-spacing: 1px; color: #fff; text-shadow: 0 4px 18px rgba(0,0,0,.9), 0 0 30px rgba(200,240,74,.3); z-index: 6; pointer-events: none; }
+  #serve-prompt.show { display: flex; }
   #pause { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.72); backdrop-filter: blur(4px); z-index: 8; text-align: center; }
   #pause .pause-box { display: flex; flex-direction: column; align-items: center; gap: 14px; }
   #pause .pause-title { font-size: 40px; font-weight: 800; letter-spacing: 4px; color: #c8f04a; }
@@ -88,15 +91,13 @@
   .vp-label { position: absolute; font-size: clamp(13px, 1.5vw, 19px); font-weight: 800; letter-spacing: 1.5px; padding: 5px 14px 6px; border-radius: 0 0 12px 0; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.8); white-space: nowrap; }
 
   /* ---- menu ---- */
-  /* Center-ish but NEVER clip: top-align with auto margins so the column sits
-     centered when it fits and scrolls from the top (title visible) when the
-     viewport is short. Vertical sizes scale with vh so it fits 1080 without
-     scrolling. (Was justify-content:center, which clipped the title off the top
-     on a 1080 TV.) */
-  #menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: clamp(8px, 1.7vh, 18px); padding: clamp(10px, 2.5vh, 40px) 16px; overflow-y: auto; background: radial-gradient(ellipse at 50% 30%, #14431f 0%, #07180c 70%, #04100a 100%); z-index: 10; }
-  #menu > * { flex-shrink: 0; }
-  #menu > :first-child { margin-top: auto; }   /* these two auto margins center */
-  #menu > :last-child  { margin-bottom: auto; } /* the column when it fits */
+  /* The whole menu auto-SCALES to fit one non-scrollable viewport (see fitMenu()):
+     #menu is a full-screen centering stage (no scroll); #menu-inner holds the
+     content and is scaled down by JS whenever it would overflow, so the title,
+     options, QR and instructions always fit at once — never clipped, never scrolled. */
+  #menu { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: radial-gradient(ellipse at 50% 30%, #14431f 0%, #07180c 70%, #04100a 100%); z-index: 10; }
+  #menu-inner { display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.6vh, 18px); padding: clamp(8px, 2vh, 28px) 16px; transform-origin: center center; }
+  #menu-inner > * { flex-shrink: 0; }
   #menu h1 { font-size: clamp(30px, 4.4vh, 46px); letter-spacing: 4px; text-shadow: 0 4px 24px rgba(200,240,74,.3); }
   #menu h1 small { display: block; font-size: 13px; letter-spacing: 8px; color: #9fd8a8; font-weight: 400; margin-top: 2px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
@@ -145,6 +146,7 @@
 </head>
 <body>
 <div id="menu">
+  <div id="menu-inner">
   <h1>🎾 LOCAL TENNIS<small>CENTRE COURT</small></h1>
   <div class="row" id="play-row">
     <label>Play</label>
@@ -188,6 +190,7 @@
   </div>
   <div id="lobby"></div>
   <div class="hint">📱 Scan the QR with your phone camera — type your name and you're playing. <b>Any joined phone can start the match</b>, so you never need the laptop. Empty seats are AI.</div>
+  </div>
 </div>
 
 <div id="howto">
@@ -217,6 +220,7 @@
 <div id="players">No phones connected yet — AI fills every seat.</div>
 <button id="pause-btn" title="Pause (P / Esc)">⏸</button>
 <div id="banner"></div>
+<div id="serve-prompt"></div>
 <div id="emote-layer"></div>
 <div id="stats-card">
   <div class="sc-title">MATCH STATS</div>
@@ -803,7 +807,28 @@ addEventListener('resize', () => {
   defaultCam.aspect = innerWidth / innerHeight;
   defaultCam.updateProjectionMatrix();
   if (session.director) buildCameras(session.matchMode);
+  fitMenu();
 });
+
+// Scale the whole menu so it always fits ONE non-scrollable viewport — never
+// clipped, never scrolled, at any window size/zoom. Measures the content at
+// natural size, then applies a transform:scale if it would overflow.
+function fitMenu() {
+  const inner = document.getElementById('menu-inner');
+  if (!inner) return;
+  inner.style.transform = 'none';            // measure natural size
+  const h = inner.offsetHeight, w = inner.offsetWidth;
+  if (!h || !w) return;
+  const scale = Math.min(1, (innerHeight - 6) / h, (innerWidth - 6) / w);
+  inner.style.transform = scale < 1 ? `scale(${scale})` : 'none';
+}
+// Re-fit whenever the menu content changes size (mode switch rebuilds the player
+// row, a phone joining adds a lobby card, etc.) — transform doesn't change the
+// measured box, so this never loops.
+{
+  const inner = document.getElementById('menu-inner');
+  if (inner && window.ResizeObserver) new ResizeObserver(fitMenu).observe(inner);
+}
 
 // ---------- audio ----------
 const audio = new AudioDirector();
@@ -1090,6 +1115,7 @@ function renderJoinQR(lanUrl, code) {
 const session = new SessionController({ seed: (Date.now() % 100000) | 0 });
 initNetwork();
 renderLobby(); // show the "waiting for players" prompt before anyone has scanned in
+fitMenu();     // scale the menu to fit the viewport on first paint
 // Soft crowd ambience on the menu so the front-end isn't dead silent. Starts
 // once audio is unlocked by the first click; the render loop drains the queue.
 setInterval(() => { if (actx && session.state === 'menu') audio.crowd('murmur', 0.5); }, 1500);
@@ -1161,6 +1187,23 @@ function banner(text, holdMs = 1600) {
   el._t = setTimeout(() => el.classList.remove('show'), holdMs);
 }
 
+// Serve prompt centered WITHIN the serving player's split-viewport (so it never
+// straddles the divider in 1v1/2v2). Falls back to full-screen in single mode.
+function showServePrompt(text, team, holdMs = 1400) {
+  const el = $('serve-prompt');
+  el.textContent = text;
+  const v = viewports.length === 2 && viewports.find(vp => vp.team === team);
+  if (v) {
+    el.style.left = `${v.x}px`; el.style.top = `${v.y}px`;
+    el.style.width = `${v.w}px`; el.style.height = `${v.h}px`;
+  } else {
+    el.style.left = '0'; el.style.top = '0'; el.style.width = '100%'; el.style.height = '100%';
+  }
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), holdMs);
+}
+
 function showBracket(round, bracket) {
   $('bracket-title').textContent = round;
   const wrap = $('bracket-rounds');
@@ -1204,6 +1247,7 @@ function onMatchCreated(title) {
   for (const slot of connectedSlots) session.attachSlot(slot);
   refreshNames(); // team labels from typed phone names, else character surnames, else Blue/Red
   $('scoreboard').style.display = 'block';
+  $('room').style.display = 'none'; // hide the join code once gameplay starts (rejoin QR lives on the pause screen)
   liveRally = 0; updateLiveStats(); $('live-stats').classList.add('show');
   $('pause-btn').classList.add('show');
   updateScoreboard({ setsWon: [0, 0], games: [0, 0], display: '0-0' });
@@ -1276,7 +1320,7 @@ function handleSessionEvents(events) {
       case 'serve_ready':
         // Cue the serving human: TAP to toss. On-TV prompt, phone prompt, buzz.
         if (e.slot !== null && e.slot !== undefined) {
-          banner(e.serveNumber === 2 ? `${teamNames[e.team]} — second serve (tap to toss)` : `${teamNames[e.team]} to serve — tap to toss`, 1400);
+          showServePrompt(e.serveNumber === 2 ? `${teamNames[e.team]} — second serve · tap to toss` : `${teamNames[e.team]} to serve · tap to toss`, e.team, 1400);
           sendHapticTo(e.slot, HAPTIC_PATTERNS.standardHit);
           if (ws?.readyState === 1) ws.send(encode(MSG.SERVE_CUE, { slot: e.slot, on: true, phase: 'toss' }));
         }
@@ -1381,8 +1425,10 @@ function handleSessionEvents(events) {
         $('menu').style.display = 'flex';
         $('bracket-overlay').style.display = 'none';
         $('scoreboard').style.display = 'none';
+        $('room').style.display = ''; // join code visible again at the menu/lobby
         $('live-stats').classList.remove('show');
         $('stats-card').classList.remove('show');
+        fitMenu();
         $('pause-btn').classList.remove('show');
         // Clear BOTH pause states on any return to the menu (a stuck flag would
         // otherwise freeze the next match — see clearAllPause / #9). Echo the
