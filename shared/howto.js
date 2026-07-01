@@ -43,6 +43,15 @@ export const HOW_TO_PLAY = {
       ],
     },
     {
+      heading: 'Energy & power shots',
+      icon: '⚡',
+      lines: [
+        'Each player has a STAMINA bar above their head. Sprinting non-stop drains it; if it empties you tire and slow to half speed until you ease off and it refills — so pick your sprints.',
+        'Stamina recovers while you stand still or move at a gentle pace, so recover between rallies and don’t hold the stick flat-out the whole point.',
+        'Meeting the ball cleanly in your strike zone fills the MOMENTUM bar. Fill it to 100% and your NEXT shot is an automatic POWER SHOT — a flatter, harder, deeper drive with a short speed burst — then the meter resets.',
+      ],
+    },
+    {
       heading: 'Modes',
       icon: '🏆',
       lines: [
@@ -66,4 +75,6 @@ export const PHONE_CHEAT_SHEET = [
   ['Swipe speed', 'shot power (slow ↑ = topspin, fast ↑ = flat)'],
   ['Serve', 'tap to toss, then swipe to strike'],
   ['Auto', 'smash a high ball, volley at net'],
+  ['Stamina', 'sprinting drains it — empty = half speed, eases off to refill'],
+  ['Momentum', 'sweet-spot hits fill it; full = next shot is a power shot'],
 ];

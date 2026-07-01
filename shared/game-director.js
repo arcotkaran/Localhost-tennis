@@ -17,6 +17,25 @@ export const REACH_X = 1.7;         // lateral reach (m)
 export const REACH_Z = 1.2;         // depth reach (m)
 export const SERVE_DELAY = 1.6;     // seconds between points
 
+// ----- stamina (human players only) -----
+// A human who keeps sprinting tires; exhausted, they move at half pace until
+// they ease off and recover. These are HUMAN-ONLY (gated on controlledBySlot in
+// stepPlayers/updateStamina) so AI-only matches — and the whole seeded audit —
+// stay byte-for-byte identical.
+export const STAMINA_SPRINT_INPUT = 0.6; // joystick pushed past this magnitude = sprinting (drains stamina)
+export const STAMINA_DRAIN = 0.14;      // stamina/sec lost at a full sprint (~7s to empty)
+export const STAMINA_REGEN = 0.20;      // stamina/sec regained when not sprinting (~5s to refill)
+export const STAMINA_FATIGUE_SPEED = 0.5; // top-speed multiplier while exhausted
+export const STAMINA_RECOVER = 0.35;    // exhaustion clears once stamina climbs back to here (hysteresis)
+
+// ----- momentum & power shot (human players only) -----
+// A perfectly-timed strike (ball met in the sweet spot) builds momentum. At a
+// full meter the player's NEXT shot is an automatic power shot — flatter, deeper,
+// harder — paired with a short movement-speed surge. The meter then empties.
+export const MOMENTUM_PER_PERFECT = 0.22; // momentum gained per sweet-spot strike (~5 to fill)
+export const POWER_BOOST_SPEED = 1.35;    // movement top-speed multiplier during the surge
+export const POWER_BOOST_TIME = 3.0;      // seconds the surge lasts
+
 const SHOT_PROFILES = {
   flat:    { speed: 30, lift: 5.0, spin: 0 },
   topspin: { speed: 28, lift: 6.0, spin: 330 },
@@ -89,6 +108,13 @@ export class GameDirector {
         move: { x: 0, y: 0 },
         armed: null,           // { action, age } — buffered swing press
         swingCooldown: 0,
+        // Human-only energy & reward state (inert for AI: never read or written
+        // while controlledBySlot is null, so AI movement/shots are unchanged).
+        stamina: 1,            // 1 = fresh, 0 = spent
+        fatigued: false,       // true while exhausted (half movement speed)
+        momentum: 0,           // 0..1 — fills on sweet-spot strikes
+        powerShotReady: false, // next shot is an automatic power shot
+        speedBoost: 0,         // seconds of movement surge remaining
       });
     }
 
@@ -415,18 +441,50 @@ export class GameDirector {
       if (p.controlledBySlot !== null) {
         const sens = p.sens ?? 0.85;
         p.body.accel = 36;
-        p.body.maxSpeed = 8.5 * (p.character?.traits.speed ?? 1) * sens;
+        // Base top speed, then modulate by fatigue (slower when spent) and the
+        // power-shot surge (faster). The un-penalized base is kept so the stamina
+        // model below can tell a real sprint from fatigued plodding.
+        const baseMax = 8.5 * (p.character?.traits.speed ?? 1) * sens;
+        const fatigue = p.fatigued ? STAMINA_FATIGUE_SPEED : 1;
+        const surge = p.speedBoost > 0 ? POWER_BOOST_SPEED : 1;
+        p.body.maxSpeed = baseMax * fatigue * surge;
       } else {
         p.body.accel = 24;
         p.body.maxSpeed = 8.5 * (p.character?.traits.speed ?? 1);
       }
       p.body.step(dt, input, this.surface);
+      if (p.controlledBySlot !== null) this.updateStamina(p, dt);
       // Keep players on their own side, inside sane bounds.
       const zMin = p.team === 0 ? 0.5 : -(COURT.length / 2 + 3);
       const zMax = p.team === 0 ? COURT.length / 2 + 3 : -0.5;
       p.body.pos.z = Math.max(zMin, Math.min(zMax, p.body.pos.z));
       p.body.pos.x = Math.max(-COURT.width / 2 - 1.5, Math.min(COURT.width / 2 + 1.5, p.body.pos.x));
     }
+  }
+
+  // Drain stamina while a human is sprinting (pushing the stick hard),
+  // regenerate it while standing still or easing off. Sprint is judged by INPUT
+  // intent, not actual speed — so an exhausted player who keeps holding the stick
+  // stays drained (no flicker), and only recovers once they let off. Fatigue
+  // latches at empty and releases once stamina climbs back past STAMINA_RECOVER.
+  // The power-surge timer bleeds down here too. Deterministic (no rng) → seeded
+  // replays stay stable.
+  updateStamina(p, dt) {
+    const sprinting = Math.hypot(p.move.x, p.move.y) > STAMINA_SPRINT_INPUT;
+    if (sprinting) {
+      p.stamina = Math.max(0, p.stamina - STAMINA_DRAIN * dt);
+      if (p.stamina <= 0 && !p.fatigued) {
+        p.fatigued = true;
+        this.emit('exhausted', { player: p.index, slot: p.controlledBySlot });
+      }
+    } else {
+      p.stamina = Math.min(1, p.stamina + STAMINA_REGEN * dt);
+      if (p.fatigued && p.stamina >= STAMINA_RECOVER) {
+        p.fatigued = false;
+        this.emit('recovered', { player: p.index, slot: p.controlledBySlot });
+      }
+    }
+    if (p.speedBoost > 0) p.speedBoost = Math.max(0, p.speedBoost - dt);
   }
 
   recoverToward(p) {
@@ -586,6 +644,18 @@ export class GameDirector {
 
   hit(player, action, aim = null, swipePower = null) {
     const isHuman = player.controlledBySlot !== null;
+    // Contact point (ball.pos is untouched through this method) — used to judge
+    // whether the ball was met in the sweet spot for momentum.
+    const contact = { x: this.ball.pos.x, y: this.ball.pos.y, z: this.ball.pos.z };
+    // Power shot: a full momentum meter makes THIS strike automatic power — drain
+    // the meter and start a short movement surge. Human-only (AI never arms it).
+    const powerShot = isHuman && player.powerShotReady;
+    if (powerShot) {
+      player.powerShotReady = false;
+      player.momentum = 0;
+      player.speedBoost = POWER_BOOST_TIME;
+      this.emit('power_shot', { player: player.index, slot: player.controlledBySlot });
+    }
     // At the net, a groundstroke becomes a volley automatically — players
     // never need a separate volley gesture.
     action = applyNetContext(action, Math.abs(player.body.pos.z));
@@ -625,10 +695,14 @@ export class GameDirector {
     }
 
     // A slice drop shot stays soft regardless of swipe speed, so it lands
-    // short instead of carrying out.
-    const effPower = action === 'slice' ? Math.min(power, 0.5) : power;
-    const vz = dir * profile.speed * (0.75 + 0.45 * Math.min(1, effPower)) * depthScale;
-    this.ball.vel = { x: (aimX - this.ball.pos.x) * 0.55, y: profile.lift, z: vz };
+    // short instead of carrying out. A power shot drives at full pace on a
+    // flatter arc, so it lands harder and deeper.
+    let effPower = action === 'slice' ? Math.min(power, 0.5) : power;
+    if (powerShot) effPower = Math.max(effPower, 1);
+    const lift = powerShot ? profile.lift * 0.8 : profile.lift;
+    const paceMul = powerShot ? 1.18 : 1;   // extra racket-head speed on the surge
+    const vz = dir * profile.speed * (0.75 + 0.45 * Math.min(1, effPower)) * depthScale * paceMul;
+    this.ball.vel = { x: (aimX - this.ball.pos.x) * 0.55, y: lift, z: vz };
     this.ball.spin = { x: dir * profile.spin * (action === 'topspin' ? (traits.topspin ?? 1) : 1), y: 0, z: 0 };
     this.ball.bounces = 0;
 
@@ -658,7 +732,9 @@ export class GameDirector {
       // angles are actually reachable. The old combined clamp eased vx and vz
       // together, so pulling a long shot in also straightened it out — a full
       // swipe barely moved the ball ~1 m sideways. Now:
-      const depthMargin = action === 'lob' ? 2.0 : 1.0;       // lobs land well inside the baseline
+      // Lobs land well inside the baseline; a power shot is allowed much deeper
+      // (right up near the line) so it genuinely carries faster and farther.
+      const depthMargin = powerShot ? 0.3 : (action === 'lob' ? 2.0 : 1.0);
       const maxZ = COURT.length / 2 - depthMargin;
       const maxX = COURT.singlesWidth / 2 - 0.2;
       // 1) DEPTH — ease forward pace (vz only) until it lands inside the baseline.
@@ -683,6 +759,22 @@ export class GameDirector {
     this.lastShot = action;
     this.rallyLength++;
     player.swingCooldown = 0.35;
+    // Reward perfectly-timed contact (ball met in the sweet spot — centred in the
+    // strike zone, at a comfortable height): a human builds momentum and, once the
+    // meter fills, arms a power shot for their next swing. Human-only.
+    if (isHuman && !powerShot) {
+      const dx = Math.abs(contact.x - player.body.pos.x);
+      const dz = Math.abs(contact.z - player.body.pos.z);
+      const sweet = dx < REACH_X * 0.6 && dz < REACH_Z * 0.7 && contact.y > 0.45 && contact.y < 1.5;
+      if (sweet && !player.powerShotReady) {
+        player.momentum = Math.min(1, player.momentum + MOMENTUM_PER_PERFECT);
+        this.emit('perfect', { player: player.index, slot: player.controlledBySlot, momentum: player.momentum });
+        if (player.momentum >= 1) {
+          player.powerShotReady = true;
+          this.emit('power_ready', { player: player.index, slot: player.controlledBySlot });
+        }
+      }
+    }
     // Intended (aim/power the swipe asked for) vs. actual (struck velocity and
     // where physics says it lands) — the record for "my shot went the wrong way".
     if (this.log) {
@@ -701,7 +793,7 @@ export class GameDirector {
     this.emit('hit', {
       player: player.index, slot: player.controlledBySlot, action, power,
       pos: { ...this.ball.pos }, rallyLength: this.rallyLength,
-      ballSpeed: Math.abs(this.ball.vel.z),
+      ballSpeed: Math.abs(this.ball.vel.z), powerShot,
     });
   }
 
@@ -816,7 +908,11 @@ export class GameDirector {
         completed: this.score.completed, winner: this.score.winner,
       },
       ball: this.ball ? { pos: this.ball.pos, vel: this.ball.vel, spin: this.ball.spin, bounces: this.ball.bounces } : null,
-      players: this.players.map(p => ({ pos: p.body.pos, vel: p.body.vel, controlledBySlot: p.controlledBySlot })),
+      players: this.players.map(p => ({
+        pos: p.body.pos, vel: p.body.vel, controlledBySlot: p.controlledBySlot,
+        stamina: p.stamina, fatigued: p.fatigued,
+        momentum: p.momentum, powerShotReady: p.powerShotReady, speedBoost: p.speedBoost,
+      })),
     });
   }
 
@@ -840,6 +936,11 @@ export class GameDirector {
       this.players[i].body.pos = { ...sp.pos };
       this.players[i].body.vel = { ...sp.vel };
       this.players[i].controlledBySlot = sp.controlledBySlot;
+      this.players[i].stamina = sp.stamina ?? 1;
+      this.players[i].fatigued = sp.fatigued ?? false;
+      this.players[i].momentum = sp.momentum ?? 0;
+      this.players[i].powerShotReady = sp.powerShotReady ?? false;
+      this.players[i].speedBoost = sp.speedBoost ?? 0;
     });
   }
 }
