@@ -324,17 +324,175 @@ $('howto-close').addEventListener('click', closeHowto);   // "GOT IT" at the bot
 $('howto-x').addEventListener('click', closeHowto);        // always-visible corner ✕
 $('howto').addEventListener('click', e => { if (e.target === $('howto')) closeHowto(); }); // click the backdrop
 
-// ---------- renderer: cinematic pipeline ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// ---------- renderer: cinematic HDR pipeline ----------
+// The scene renders into a half-float HDR buffer (linear, no tone map); a custom
+// bloom + ACES composite pass (see "bloom post" below) does the tone mapping and
+// sRGB encode on the way to the screen. That makes every emissive surface — the
+// roofline strips, light towers, the ball, impact sparks — actually GLOW, which
+// the flat forward pipeline could never do. Falls back to direct ACES rendering
+// if bloom is unsupported/disabled.
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setScissorTest(true);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+let bloomOn = true;                     // HDR bloom pipeline active (toggle with B)
+const EXPOSURE = 1.25;                   // applied in the composite (or as tone exposure when bloom off)
+// While bloom is on, the scene draws linear into the HDR target and the composite
+// owns tone mapping + colour. When off, the renderer does it directly.
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 document.body.appendChild(renderer.domElement);
+
+// ---------- bloom post (HDR threshold → separable blur → ACES composite) ----------
+// Built from core three only (no example addons — the app is strictly local). The
+// whole frame, including both split-screen viewports, renders into hdrRT; the
+// composite then tone-maps and adds the blurred glow on top, so bloom "just works"
+// across split-screen with one extra pass.
+let hdrRT, brightRT, blurA, blurB;
+function makeBloomTargets() {
+  const pr = renderer.getPixelRatio();
+  const w = Math.max(2, Math.floor(innerWidth * pr));
+  const h = Math.max(2, Math.floor(innerHeight * pr));
+  const base = { type: THREE.HalfFloatType, colorSpace: THREE.LinearSRGBColorSpace };
+  if (hdrRT) { hdrRT.dispose(); brightRT.dispose(); blurA.dispose(); blurB.dispose(); }
+  // NO MSAA on the HDR target (samples:0). A multisampled target resolves AND
+  // invalidates its colour buffer at the end of EVERY renderer.render(), so the
+  // two split-screen viewports (rendered in two passes into one target) clobber
+  // each other — only the last survives. Edges stay clean via the 2× DPR
+  // supersample (the oversized drawing buffer is downsampled to the canvas).
+  hdrRT = new THREE.WebGLRenderTarget(w, h, { ...base, depthBuffer: true });
+  const hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1);   // bloom runs at half-res (softer + cheaper)
+  brightRT = new THREE.WebGLRenderTarget(hw, hh, { ...base, depthBuffer: false });
+  blurA = new THREE.WebGLRenderTarget(hw, hh, { ...base, depthBuffer: false });
+  blurB = new THREE.WebGLRenderTarget(hw, hh, { ...base, depthBuffer: false });
+}
+makeBloomTargets();
+
+const fsScene = new THREE.Scene();
+const fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const fsQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+fsScene.add(fsQuad);
+const FS_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const brightMat = new THREE.ShaderMaterial({
+  uniforms: { tDiffuse: { value: null }, threshold: { value: 0.85 }, knee: { value: 0.5 } },
+  vertexShader: FS_VERT, depthTest: false, depthWrite: false,
+  fragmentShader: `varying vec2 vUv; uniform sampler2D tDiffuse; uniform float threshold; uniform float knee;
+    void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      float f = smoothstep(threshold, threshold + knee, l);
+      gl_FragColor = vec4(c * f, 1.0); }`,
+});
+const blurMat = new THREE.ShaderMaterial({
+  uniforms: { tDiffuse: { value: null }, dir: { value: new THREE.Vector2() }, texel: { value: new THREE.Vector2() } },
+  vertexShader: FS_VERT, depthTest: false, depthWrite: false,
+  fragmentShader: `varying vec2 vUv; uniform sampler2D tDiffuse; uniform vec2 dir; uniform vec2 texel;
+    void main(){ vec2 o = dir * texel;
+      vec3 s = texture2D(tDiffuse, vUv).rgb * 0.227027;
+      s += texture2D(tDiffuse, vUv + o * 1.0).rgb * 0.1945946;
+      s += texture2D(tDiffuse, vUv - o * 1.0).rgb * 0.1945946;
+      s += texture2D(tDiffuse, vUv + o * 2.0).rgb * 0.1216216;
+      s += texture2D(tDiffuse, vUv - o * 2.0).rgb * 0.1216216;
+      s += texture2D(tDiffuse, vUv + o * 3.0).rgb * 0.0540540;
+      s += texture2D(tDiffuse, vUv - o * 3.0).rgb * 0.0540540;
+      s += texture2D(tDiffuse, vUv + o * 4.0).rgb * 0.0162162;
+      s += texture2D(tDiffuse, vUv - o * 4.0).rgb * 0.0162162;
+      gl_FragColor = vec4(s, 1.0); }`,
+});
+const compositeMat = new THREE.ShaderMaterial({
+  uniforms: { tScene: { value: null }, tBloom: { value: null }, strength: { value: 0.85 }, exposure: { value: EXPOSURE } },
+  vertexShader: FS_VERT, depthTest: false, depthWrite: false, toneMapped: false,
+  fragmentShader: `varying vec2 vUv; uniform sampler2D tScene; uniform sampler2D tBloom; uniform float strength; uniform float exposure;
+    vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+    void main(){ vec3 hdr = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * strength;
+      vec3 mapped = aces(hdr * exposure);
+      gl_FragColor = vec4(pow(mapped, vec3(0.4545)), 1.0); }`,
+});
+
+function blitFS(mat, target) {
+  fsQuad.material = mat;
+  renderer.setRenderTarget(target);
+  renderer.setScissorTest(false);
+  const pr = renderer.getPixelRatio();
+  const w = target ? target.width / pr : innerWidth;
+  const h = target ? target.height / pr : innerHeight;
+  renderer.setViewport(0, 0, w, h);
+  renderer.render(fsScene, fsCam);
+  renderer.setScissorTest(true);
+}
+function compositeBloom() {
+  const spread = 1.6;
+  brightMat.uniforms.tDiffuse.value = hdrRT.texture;
+  blitFS(brightMat, brightRT);
+  let src = brightRT;
+  for (let i = 0; i < 2; i++) {                 // two ping-pong iterations = a soft, wide glow
+    blurMat.uniforms.texel.value.set(spread / brightRT.width, spread / brightRT.height);
+    blurMat.uniforms.tDiffuse.value = src.texture; blurMat.uniforms.dir.value.set(1, 0);
+    blitFS(blurMat, blurA);
+    blurMat.uniforms.tDiffuse.value = blurA.texture; blurMat.uniforms.dir.value.set(0, 1);
+    blitFS(blurMat, blurB);
+    src = blurB;
+  }
+  compositeMat.uniforms.tScene.value = hdrRT.texture;
+  compositeMat.uniforms.tBloom.value = blurB.texture;
+  blitFS(compositeMat, null);
+}
+
+// Render every active viewport into the HDR target (or straight to screen when
+// bloom is off), then run the composite. Shared by the live loop and forceRender.
+//
+// IMPORTANT: when an off-screen render target is bound, three.js clips to the
+// TARGET's own .viewport/.scissor (in device pixels) — renderer.setViewport()/
+// setScissor() only steer the default framebuffer. So for the bloom path each
+// split-screen viewport must drive hdrRT.viewport/scissor, or the second pass
+// overwrites the whole buffer and you lose split-screen.
+function renderFrame(now, shake) {
+  const dir = session.director;
+  const inMatch = (dir && ['entry', 'match'].includes(session.state)) || session.state === 'trophy';
+  const pr = renderer.getPixelRatio();
+  const drawView = (rx, ry, rw, rh, cam) => {
+    if (bloomOn) {
+      hdrRT.viewport.set(rx * pr, ry * pr, rw * pr, rh * pr);
+      hdrRT.scissor.set(rx * pr, ry * pr, rw * pr, rh * pr);
+      hdrRT.scissorTest = true;
+      renderer.setRenderTarget(hdrRT);     // re-bind to apply the RT's viewport/scissor
+    } else {
+      renderer.setViewport(rx, ry, rw, rh);
+      renderer.setScissor(rx, ry, rw, rh);
+    }
+    renderer.render(scene, cam);
+  };
+  // Clear the whole HDR buffer once (scissor off) before tiling the viewports in.
+  if (bloomOn) {
+    hdrRT.scissorTest = false;
+    hdrRT.viewport.set(0, 0, hdrRT.width, hdrRT.height);
+    renderer.setRenderTarget(hdrRT);
+    renderer.clear();
+  } else {
+    renderer.setRenderTarget(null);
+  }
+  if (viewports.length && inMatch) {
+    for (const v of viewports) {
+      let ox = 0, oy = 0;
+      if (shake && camShake) { ox = Math.sin(now * 0.11 + v.team) * 0.5 * camShake; oy = Math.cos(now * 0.17 + v.team) * 0.4 * camShake; v.cam.position.x += ox; v.cam.position.y += oy; }
+      const r = v.glRect;
+      drawView(r.x, r.y, r.w, r.h, v.cam);
+      if (ox || oy) { v.cam.position.x -= ox; v.cam.position.y -= oy; }
+    }
+  } else {
+    drawView(0, 0, innerWidth, innerHeight, defaultCam);
+  }
+  if (bloomOn) compositeBloom();
+  renderer.setRenderTarget(null);
+}
+// B toggles the bloom pipeline (lets a slower machine drop to the plain pipeline).
+function setBloom(on) {
+  bloomOn = on;
+  renderer.toneMapping = on ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = EXPOSURE;
+  renderer.outputColorSpace = on ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace;
+}
 
 const scene = new THREE.Scene();
 // Night-session sky: vertical gradient dome.
@@ -353,11 +511,44 @@ const scene = new THREE.Scene();
 }
 scene.fog = new THREE.Fog(0x07131f, 55, 130);
 
+// Night sky detail: a dome of stars + a soft moon high over the far stand.
+{
+  const N = 1100, pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < N; i++) {
+    // Scatter on a high hemisphere shell, biased above the horizon.
+    const a = (i * 2.39996), r = 120 + (i % 40);
+    const el = 0.12 + 0.85 * ((i * 0.6180339) % 1);     // elevation fraction
+    const y = r * el, rad = r * Math.sqrt(Math.max(0, 1 - el * el));
+    pos[i * 3] = Math.cos(a) * rad; pos[i * 3 + 1] = y; pos[i * 3 + 2] = Math.sin(a) * rad - 10;
+    const tw = 0.5 + 0.5 * ((i * 0.732) % 1);
+    c.setHSL(0.58 + 0.06 * ((i * 0.27) % 1), 0.25, 0.7 * tw);
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  sg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const stars = new THREE.Points(sg, new THREE.PointsMaterial({ size: 0.55, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+  scene.add(stars);
+  // Moon: a soft emissive disc + an additive halo so bloom gives it a glow.
+  const moonTex = (() => {
+    const cc = document.createElement('canvas'); cc.width = cc.height = 64;
+    const gg = cc.getContext('2d');
+    const grd = gg.createRadialGradient(32, 32, 4, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(245,250,255,1)'); grd.addColorStop(0.5, 'rgba(225,238,255,0.85)'); grd.addColorStop(1, 'rgba(200,225,255,0)');
+    gg.fillStyle = grd; gg.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(cc);
+  })();
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, color: 0xffffff, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+  moon.scale.setScalar(16); moon.position.set(-34, 52, -95);
+  scene.add(moon);
+}
+
 scene.add(new THREE.HemisphereLight(0xbcd8ff, 0x0a2a14, 0.5));
 const key = new THREE.DirectionalLight(0xfff2da, 2.2);
 key.position.set(14, 26, 10);
 key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
+key.shadow.mapSize.set(4096, 4096);
 key.shadow.camera.left = -18; key.shadow.camera.right = 18;
 key.shadow.camera.top = 22; key.shadow.camera.bottom = -22;
 key.shadow.camera.far = 70;
@@ -413,9 +604,29 @@ function courtTexture(name) {
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); // crisp stripes/wear at grazing angles
   return tex;
 }
-const courtMat = new THREE.MeshStandardMaterial({ map: courtTexture('hard'), roughness: 0.86, metalness: 0.02, envMapIntensity: 0.35 });
+// A faint procedural normal map gives the court surface real micro-relief under
+// the floodlights (subtle, not a bumpy carpet) so it isn't a flat plastic sheet.
+function courtNormalTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#8080ff'; g.fillRect(0, 0, 256, 256);   // flat normal
+  for (let i = 0; i < 9000; i++) {
+    const v = 120 + Math.random() * 24;
+    g.fillStyle = `rgba(${v | 0},${v | 0},255,0.5)`;
+    g.fillRect(Math.random() * 256, Math.random() * 256, 1, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(10, 22);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const courtMat = new THREE.MeshStandardMaterial({
+  map: courtTexture('hard'), roughness: 0.82, metalness: 0.04, envMapIntensity: 0.28,
+  normalMap: courtNormalTexture(), normalScale: new THREE.Vector2(0.25, 0.25),
+});
 const courtMesh = new THREE.Mesh(new THREE.BoxGeometry(COURT.width, 0.1, COURT.length), courtMat);
 courtMesh.receiveShadow = true;
 scene.add(courtMesh);
@@ -425,7 +636,9 @@ apron.position.y = -0.06;
 apron.receiveShadow = true;
 scene.add(apron);
 
-const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+// Court lines emit a faint glow so the bloom pass catches them — a clean,
+// broadcast-grade crispness without looking like neon.
+const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf2ff, emissiveIntensity: 0.16, roughness: 0.55 });
 function line(w, l, x, z) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.105, l), lineMat);
   m.position.set(x, 0.005, z);
@@ -568,7 +781,7 @@ scene.add(crowdBodies, crowdHeads);
 
 // Ball, trail, shadow, bounce dust.
 const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 20, 16),
-  new THREE.MeshStandardMaterial({ color: 0xdfff4f, emissive: 0x9bb821, emissiveIntensity: 0.5, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.6 }));
+  new THREE.MeshStandardMaterial({ color: 0xdfff4f, emissive: 0xb6dc2a, emissiveIntensity: 0.85, roughness: 0.5, metalness: 0.05, envMapIntensity: 0.7 }));
 ballMesh.castShadow = true;
 // Curved seam so the ball's spin reads as it tumbles through the air.
 {
@@ -669,9 +882,66 @@ function makeReachRing() {
   return g;
 }
 
+// Floating "player meter" billboard above each human player's head: a stacked
+// STAMINA bar (green→amber→red, flashes when exhausted) and MOMENTUM bar
+// (cyan→gold, glows when a power shot is armed). Drawn to a canvas texture and
+// shown as a Sprite so it faces the camera correctly in every split viewport.
+function makeMeter() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, depthTest: false }));
+  sprite.scale.set(2.05, 0.77, 1);     // world-space size of the floating badge
+  sprite.visible = false;
+  sprite.renderOrder = 999;            // draw on top of players/net
+  return { sprite, canvas, ctx, texture };
+}
+
+const lerpHex = (a, b, t) => {
+  const ax = a >> 16, ay = (a >> 8) & 255, az = a & 255;
+  const bx = b >> 16, by = (b >> 8) & 255, bz = b & 255;
+  const r = Math.round(ax + (bx - ax) * t), g = Math.round(ay + (by - ay) * t), bl = Math.round(az + (bz - az) * t);
+  return `rgb(${r},${g},${bl})`;
+};
+function drawBar(ctx, x, y, w, h, frac, color, glow = 0) {
+  ctx.fillStyle = 'rgba(4,12,8,.82)';
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, h / 2); ctx.fill();
+  if (glow > 0) { ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 18 * glow; }
+  const fw = Math.max(h, w * Math.max(0, Math.min(1, frac)));
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.roundRect(x, y, fw, h, h / 2); ctx.fill();
+  if (glow > 0) ctx.restore();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.22)';
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, h / 2); ctx.stroke();
+}
+function drawMeter(actor, stamina, momentum, ready, fatigued, pulse) {
+  const { ctx, meterTex: tex } = actor;
+  ctx.clearRect(0, 0, 256, 96);
+  // STAMINA — green when fresh, ambering to red as it drains; flash on empty.
+  const stColor = fatigued
+    ? (pulse > 0.5 ? '#ff5a4a' : '#9a2018')
+    : (stamina > 0.5 ? lerpHex(0xc8f04a, 0x4ad86a, (stamina - 0.5) * 2) : lerpHex(0xf0654a, 0xc8f04a, stamina * 2));
+  drawBar(ctx, 14, 16, 228, 22, stamina, stColor, fatigued ? pulse : 0);
+  // MOMENTUM — cyan filling to gold; full meter glows and shows a charge bolt.
+  const moColor = ready ? '#ffd23a' : lerpHex(0x4ad8f0, 0xffd23a, momentum);
+  drawBar(ctx, 14, 52, 228, 22, momentum, moColor, ready ? 0.6 + 0.4 * pulse : 0);
+  if (ready) {
+    ctx.font = '700 26px Segoe UI, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#2a1c00';
+    ctx.fillText('⚡', 128, 64);
+  }
+  tex.needsUpdate = true;
+}
+
 let actors = [];
 function buildActors(players, characters) {
-  for (const a of actors) { scene.remove(a.group); scene.remove(a.shadow); scene.remove(a.reach); }
+  for (const a of actors) {
+    scene.remove(a.group); scene.remove(a.shadow); scene.remove(a.reach);
+    if (a.meter) { scene.remove(a.meter); a.meterTex?.dispose?.(); a.meter.material.dispose(); }
+  }
   actors = players.map((p, i) => {
     // Doubles partners share a team colour family but get distinct shades, so
     // all four players are individually identifiable. Singles/1v1 → variant 0.
@@ -723,7 +993,10 @@ function buildActors(players, characters) {
     scene.add(shadow);
     const reach = makeReachRing();
     scene.add(reach);
-    return { group, pivots, faceRefs, swing: null, team: p.team, index: i, shadow, walkPhase: 0, reach, reachHot: 0 };
+    const meter = makeMeter();
+    scene.add(meter.sprite);
+    return { group, pivots, faceRefs, swing: null, team: p.team, index: i, shadow, walkPhase: 0, reach, reachHot: 0,
+      meter: meter.sprite, meterCanvas: meter.canvas, ctx: meter.ctx, meterTex: meter.texture, powerPulse: 0 };
   });
 }
 
@@ -818,6 +1091,7 @@ defaultCam.position.set(0, 8.5, COURT.length / 2 + 8);
 defaultCam.lookAt(0, 0.4, -4);
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
+  makeBloomTargets();
   defaultCam.aspect = innerWidth / innerHeight;
   defaultCam.updateProjectionMatrix();
   if (session.director) buildCameras(session.matchMode);
@@ -914,6 +1188,7 @@ addEventListener('keydown', e => {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { e.preventDefault(); toggleUserPause(); }
   else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); endGameToMenu(); }
   else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); showReachRings = !showReachRings; }
+  else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); setBloom(!bloomOn); }
   else if (e.key === 'Enter' && session.state === 'menu' && $('menu').style.display !== 'none') {
     e.preventDefault(); startMatch();                 // keyboard hosts can start without a mouse
   }
@@ -1398,15 +1673,33 @@ function handleSessionEvents(events) {
         grunt.pitch *= 0.82 + Math.random() * 0.36;
         grunt.volume *= 0.5 + Math.random() * 0.45;
         if (e.rallyLength) { crowd.rallyShot({ rallyLength: e.rallyLength, ballSpeed: e.ballSpeed ?? 25 }); liveRally = e.rallyLength; updateLiveStats(); }
+        if (e.powerShot) strike.volume *= 1.3;   // the surge strike lands heavier
         if (e.slot !== null && e.slot !== undefined) {
-          sendHapticTo(e.slot, e.action === 'smash' ? HAPTIC_PATTERNS.powerSmash : HAPTIC_PATTERNS.standardHit);
+          sendHapticTo(e.slot, (e.action === 'smash' || e.powerShot) ? HAPTIC_PATTERNS.powerSmash : HAPTIC_PATTERNS.standardHit);
         }
         const actor = actors[e.player];
         if (actor) actor.swing = { action: e.action, t: 0 };
-        if (e.pos) spawnHitSpark(e.pos.x, e.pos.y, e.pos.z, e.action === 'smash');
-        if (e.action === 'smash') camShake = Math.min(0.5, camShake + 0.28);
+        const big = e.action === 'smash' || e.powerShot;
+        if (e.pos) spawnHitSpark(e.pos.x, e.pos.y, e.pos.z, big);
+        if (big) camShake = Math.min(0.6, camShake + (e.powerShot ? 0.34 : 0.28));
         break;
       }
+      case 'power_ready': {
+        // Meter just filled — a charge flourish, a buzz on the player's phone,
+        // and a glow burst on their floating meter.
+        audio.ui('start');
+        const a = actors[e.player]; if (a) a.powerPulse = 1;
+        if (e.slot !== null && e.slot !== undefined) sendHapticTo(e.slot, HAPTIC_PATTERNS.powerSmash);
+        break;
+      }
+      case 'power_shot': {
+        const a = actors[e.player]; if (a) a.powerPulse = 1;
+        crowd.rallyShot({ rallyLength: 6, ballSpeed: 42 }); // a roar for the big strike
+        break;
+      }
+      case 'exhausted':
+        if (e.slot !== null && e.slot !== undefined) sendHapticTo(e.slot, [60, 40, 60]);
+        break;
       case 'bounce':
         audio.ballBounce({ surface: e.surface, speed: e.speed, pos: e.pos });
         ballSquash = Math.min(1, 0.35 + e.speed * 0.03); // faster bounce → flatter squash
@@ -1542,6 +1835,19 @@ function animateActors(dt) {
     } else {
       a.reach.visible = false;
     }
+
+    // Floating stamina + momentum meter above each human player (live play only).
+    a.powerPulse = Math.max(0, a.powerPulse - dt * 1.6);
+    if (human && ringsLive && pl) {
+      a.meter.visible = true;
+      a.meter.position.set(a.group.position.x, 2.62 + a.group.position.y, a.group.position.z);
+      const flash = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+      const ready = !!pl.powerShotReady;
+      const pulse = Math.max(ready ? flash : 0, pl.fatigued ? flash : 0, a.powerPulse);
+      drawMeter(a, pl.stamina ?? 1, pl.momentum ?? 0, ready, !!pl.fatigued, pulse);
+    } else {
+      a.meter.visible = false;
+    }
   }
   for (const inter of activeInteractions) inter.t += dt;
   activeInteractions = activeInteractions.filter(i => i.t < i.sequence.totalDuration);
@@ -1654,23 +1960,7 @@ function frame(now) {
   playDescriptors();
 
   camShake = Math.max(0, camShake - (realDt || 0.016) * 2.6); // decay the shake impulse
-  const inMatch = (dir && ['entry', 'match'].includes(session.state)) || session.state === 'trophy';
-  if (viewports.length && inMatch) {
-    for (const v of viewports) {
-      const ox = camShake ? Math.sin(now * 0.11 + v.team) * 0.5 * camShake : 0;
-      const oy = camShake ? Math.cos(now * 0.17 + v.team) * 0.4 * camShake : 0;
-      v.cam.position.x += ox; v.cam.position.y += oy;
-      const r = v.glRect;
-      renderer.setViewport(r.x, r.y, r.w, r.h);
-      renderer.setScissor(r.x, r.y, r.w, r.h);
-      renderer.render(scene, v.cam);
-      v.cam.position.x -= ox; v.cam.position.y -= oy;
-    }
-  } else {
-    renderer.setViewport(0, 0, innerWidth, innerHeight);
-    renderer.setScissor(0, 0, innerWidth, innerHeight);
-    renderer.render(scene, defaultCam);
-  }
+  renderFrame(now, true);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -1684,19 +1974,7 @@ window.__tennis = {
     const dir = session.director;
     animateActors(0.016);
     if (dir?.ball) ballMesh.position.set(dir.ball.pos.x, dir.ball.pos.y, dir.ball.pos.z);
-    const inMatch = (dir && ['entry', 'match'].includes(session.state)) || session.state === 'trophy';
-    if (viewports.length && inMatch) {
-      for (const v of viewports) {
-        const r = v.glRect;
-        renderer.setViewport(r.x, r.y, r.w, r.h);
-        renderer.setScissor(r.x, r.y, r.w, r.h);
-        renderer.render(scene, v.cam);
-      }
-    } else {
-      renderer.setViewport(0, 0, innerWidth, innerHeight);
-      renderer.setScissor(0, 0, innerWidth, innerHeight);
-      renderer.render(scene, defaultCam);
-    }
+    renderFrame(performance.now(), false);
     return renderer.domElement;
   },
 };
